@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CFT Inventory System v3 | Craftech360</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <!-- Flatpickr Date Picker -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <span class="logo-icon">📦</span>
+                <span class="logo-text">CFT Inventory</span>
+            </div>
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active" data-view="dashboard">
+                    <span class="nav-icon">📊</span>
+                    <span>Dashboard</span>
+                </a>
+                <a href="#" class="nav-item" data-view="inventory">
+                    <span class="nav-icon">📋</span>
+                    <span>All Items</span>
+                </a>
+                <a href="#" class="nav-item" data-view="add">
+                    <span class="nav-icon">➕</span>
+                    <span>Add Item</span>
+                </a>
+                <a href="#" class="nav-item" data-view="categories">
+                    <span class="nav-icon">🏷️</span>
+                    <span>Categories</span>
+                </a>
+                <div class="nav-divider"></div>
+                <a href="#" class="nav-item" data-view="deliveryChannels">
+                    <span class="nav-icon">🚚</span>
+                    <span>Delivery Channels</span>
+                </a>
+                <a href="#" class="nav-item" data-view="createDC">
+                    <span class="nav-icon">📝</span>
+                    <span>Create DC</span>
+                </a>
+                <div class="nav-divider"></div>
+                <a href="#" class="nav-item" data-view="dailyLog">
+                    <span class="nav-icon">🔄</span>
+                    <span>Daily Log</span>
+                </a>
+                <a href="#" class="nav-item" data-view="checkoutItem">
+                    <span class="nav-icon">📤</span>
+                    <span>Checkout Item</span>
+                </a>
+                <div class="nav-divider"></div>
+                <a href="#" class="nav-item" data-view="builds">
+                    <span class="nav-icon">🔨</span>
+                    <span>Product Builds</span>
+                </a>
+                <a href="#" class="nav-item" data-view="createBuild">
+                    <span class="nav-icon">⚙️</span>
+                    <span>Build Product</span>
+                </a>
+                <div class="nav-divider"></div>
+                <a href="#" class="nav-item" data-view="purchaseRequests">
+                    <span class="nav-icon">🛒</span>
+                    <span>Purchase Requests</span>
+                </a>
+                <a href="#" class="nav-item" data-view="createPR">
+                    <span class="nav-icon">➕</span>
+                    <span>New PR</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <button class="sync-btn" onclick="loadData()">
+                    <span class="sync-icon">🔄</span>
+                    <span>Sync Data</span>
+                </button>
+                <div class="last-sync">Last sync: <span id="lastSync">Never</span></div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="header">
+                <div class="header-left">
+                    <h1 id="pageTitle">Dashboard</h1>
+                    <p class="header-subtitle">Craftech360 Inventory Management</p>
+                </div>
+                <div class="header-right">
+                    <div class="search-box">
+                        <input type="text" id="globalSearch" placeholder="Search items..." onkeyup="filterItems()">
+                    </div>
+                </div>
+            </header>
+
+            <!-- Dashboard View -->
+            <section id="dashboardView" class="view active">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">📦</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="totalItems">0</span>
+                            <span class="stat-label">Total Items</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">✅</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="availableItems">0</span>
+                            <span class="stat-label">Available</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">🔧</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="inUseItems">0</span>
+                            <span class="stat-label">In Use</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">💰</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="totalValue">₹0</span>
+                            <span class="stat-label">Total Value</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dashboard-grid">
+                    <div class="card category-breakdown">
+                        <h3>Category Breakdown</h3>
+                        <div id="categoryChart" class="category-bars"></div>
+                    </div>
+                    <div class="card status-overview">
+                        <h3>Status Overview</h3>
+                        <div id="statusChart" class="status-donut"></div>
+                    </div>
+                    <div class="card recent-items">
+                        <h3>Recently Added</h3>
+                        <div id="recentList" class="recent-list"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Inventory View -->
+            <section id="inventoryView" class="view">
+                <div class="toolbar">
+                    <div class="filter-group">
+                        <select id="categoryFilter" onchange="filterItems()">
+                            <option value="">All Categories</option>
+                            <option value="IT Assets">IT Assets</option>
+                            <option value="Electronics">Electronics</option>
+                            <option value="Event Equipment">Event Equipment</option>
+                            <option value="Mechanical Division">Mechanical Division</option>
+                            <option value="Office Assets">Office Assets</option>
+                            <option value="Dead Stock">Dead Stock</option>
+                        </select>
+                        <select id="statusFilter" onchange="filterItems()">
+                            <option value="">All Status</option>
+                            <option value="Available">Available</option>
+                            <option value="In Use">In Use</option>
+                            <option value="Checked Out">Checked Out</option>
+                            <option value="Maintenance">Maintenance</option>
+                            <option value="Dead Stock">Dead Stock</option>
+                        </select>
+                    </div>
+                    <button class="export-btn" onclick="exportData()">📥 Export CSV</button>
+                </div>
+                <div class="table-container">
+                    <table class="inventory-table">
+                        <thead>
+                            <tr>
+                                <th>Item ID</th>
+                                <th>Name</th>
+                                <th>Category</th>
+                                <th>Qty</th>
+                                <th>Status</th>
+                                <th>Location</th>
+                                <th>Value</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="inventoryTableBody">
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Add Item View -->
+            <section id="addView" class="view">
+                <div class="card form-card">
+                    <h3>Add New Item</h3>
+                    <form id="addItemForm" onsubmit="addItem(event)">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label>Item Name *</label>
+                                <input type="text" id="itemName" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Category *</label>
+                                <select id="itemCategory" required onchange="updateItemId(); toggleRentalFields()">
+                                    <option value="">Select Category</option>
+                                    <option value="IT Assets">IT Assets</option>
+                                    <option value="Electronics">Electronics</option>
+                                    <option value="Event Equipment">Event Equipment</option>
+                                    <option value="Mechanical Division">Mechanical Division</option>
+                                    <option value="Office Assets">Office Assets</option>
+                                    <option value="Dead Stock">Dead Stock</option>
+                                    <option value="Rented Equipment">🔄 Rented Equipment</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Sub-Category</label>
+                                <select id="itemSubCategory">
+                                    <option value="">Select Category First</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Quantity *</label>
+                                <input type="number" id="itemQuantity" min="1" value="1" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Status</label>
+                                <select id="itemStatus">
+                                    <option value="Available">Available</option>
+                                    <option value="In Use">In Use</option>
+                                    <option value="Checked Out">Checked Out</option>
+                                    <option value="Maintenance">Maintenance</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Location</label>
+                                <input type="text" id="itemLocation" placeholder="e.g., Warehouse A">
+                            </div>
+                            <div class="form-group">
+                                <label>Value (₹)</label>
+                                <input type="number" id="itemValue" min="0" value="0">
+                            </div>
+                            <div class="form-group full-width">
+                                <label>Notes</label>
+                                <textarea id="itemNotes" rows="3" placeholder="Optional remarks..."></textarea>
+                            </div>
+                            
+                            <!-- Rental-specific fields (hidden by default) -->
+                            <div id="rentalFields" class="rental-fields" style="display: none; grid-column: span 2;">
+                                <h4 style="margin: 20px 0 15px; color: var(--primary-light);">🔄 Rental Details</h4>
+                                <div class="form-grid">
+                                    <div class="form-group">
+                                        <label>Return Date *</label>
+                                        <input type="date" id="itemReturnDate">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Event/Project</label>
+                                        <input type="text" id="itemEventProject" placeholder="e.g., Tech Summit 2026">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Vendor Name *</label>
+                                        <input type="text" id="itemVendorName" placeholder="Company/Person name">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Vendor Contact</label>
+                                        <input type="text" id="itemVendorContact" placeholder="Phone/Email">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Rental Cost (₹)</label>
+                                        <input type="number" id="itemRentalCost" min="0" value="0">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Deposit (₹)</label>
+                                        <input type="number" id="itemDeposit" min="0" value="0">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn-primary">Add Item</button>
+                            <button type="reset" class="btn-secondary">Clear</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Categories View -->
+            <section id="categoriesView" class="view">
+                <div class="categories-grid" id="categoriesGrid">
+                </div>
+            </section>
+
+            <!-- Delivery Channels View -->
+            <section id="deliveryChannelsView" class="view">
+                <div class="toolbar">
+                    <div class="filter-group">
+                        <select id="dcStatusFilter" onchange="filterDCs()">
+                            <option value="">All Status</option>
+                            <option value="Draft">📝 Draft</option>
+                            <option value="Pending Approval">⏳ Pending Approval</option>
+                            <option value="Approved">✅ Approved</option>
+                            <option value="Dispatched">🚚 Dispatched</option>
+                            <option value="At Event">📍 At Event</option>
+                            <option value="Returning">↩️ Returning</option>
+                            <option value="Inspection">🔍 Inspection</option>
+                            <option value="Closed">✅ Closed</option>
+                        </select>
+                        <input type="text" id="dcSearch" placeholder="Search by event/client..." onkeyup="filterDCs()">
+                    </div>
+                    <button class="btn-primary" onclick="switchView('createDC')">+ Create DC</button>
+                </div>
+                <div class="dc-list" id="dcList">
+                    <!-- DC cards will be populated here -->
+                </div>
+            </section>
+
+            <!-- Create DC View -->
+            <section id="createDCView" class="view">
+                <div class="card form-card" style="max-width: 1000px;">
+                    <h3>🚚 Create Delivery Channel</h3>
+                    <form id="createDCForm" onsubmit="createDC(event)">
+                        <div class="form-section">
+                            <h4>Event Details</h4>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label>Event Name *</label>
+                                    <input type="text" id="dcEventName" required placeholder="e.g., Tech Summit 2026">
+                                </div>
+                                <div class="form-group">
+                                    <label>Activity *</label>
+                                    <input type="text" id="dcActivity" required placeholder="e.g., Main Stage Setup">
+                                </div>
+                                <div class="form-group">
+                                    <label>Event Date *</label>
+                                    <input type="date" id="dcEventDate" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Event Location *</label>
+                                    <input type="text" id="dcEventLocation" required placeholder="Venue name & city">
+                                </div>
+                                <div class="form-group">
+                                    <label>Client Name *</label>
+                                    <input type="text" id="dcClientName" required placeholder="Client company">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-section">
+                            <h4>Point of Contact</h4>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label>Client POC Name</label>
+                                    <input type="text" id="dcClientPOC" placeholder="Contact person name">
+                                </div>
+                                <div class="form-group">
+                                    <label>Client POC Phone</label>
+                                    <input type="tel" id="dcClientPhone" placeholder="+91 XXXXX XXXXX">
+                                </div>
+                                <div class="form-group">
+                                    <label>Site POC Name</label>
+                                    <input type="text" id="dcSitePOC" placeholder="On-ground contact">
+                                </div>
+                                <div class="form-group">
+                                    <label>Site POC Phone</label>
+                                    <input type="tel" id="dcSitePhone" placeholder="+91 XXXXX XXXXX">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-section">
+                            <h4>Delivery Addresses</h4>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label>Delivery From (Pickup Address) *</label>
+                                    <textarea id="dcFromAddress" rows="3" required placeholder="Office/Warehouse address&#10;Line 2&#10;City, PIN"></textarea>
+                                </div>
+                                <div class="form-group">
+                                    <label>Delivery To (Drop Address) *</label>
+                                    <textarea id="dcToAddress" rows="3" required placeholder="Event venue address&#10;Line 2&#10;City, PIN"></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-section">
+                            <h4>Office Team & Logistics</h4>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label>Carrier Name *</label>
+                                    <input type="text" id="dcCarrierName" required placeholder="Who's taking it">
+                                </div>
+                                <div class="form-group">
+                                    <label>Carrier Phone</label>
+                                    <input type="tel" id="dcCarrierPhone" placeholder="+91 XXXXX XXXXX">
+                                </div>
+                                <div class="form-group">
+                                    <label>Vehicle Number</label>
+                                    <input type="text" id="dcVehicleNumber" placeholder="KA-XX-XX-XXXX">
+                                </div>
+                                <div class="form-group">
+                                    <label>Dispatch Date</label>
+                                    <input type="date" id="dcDispatchDate">
+                                </div>
+                                <div class="form-group">
+                                    <label>Expected Return *</label>
+                                    <input type="date" id="dcExpectedReturn" required>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-section">
+                            <h4>Items to Dispatch</h4>
+                            <div class="dc-items-selector">
+                                <div class="available-items">
+                                    <h5>Available Items</h5>
+                                    <input type="text" id="itemSearchDC" placeholder="Search items..." onkeyup="filterAvailableItems()">
+                                    <div class="items-list" id="availableItemsList"></div>
+                                </div>
+                                <div class="selected-items">
+                                    <h5>Selected Items (<span id="selectedCount">0</span>)</h5>
+                                    <div class="items-list" id="selectedItemsList"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-section">
+                            <h4>Notes</h4>
+                            <textarea id="dcNotes" rows="3" placeholder="Any special instructions..."></textarea>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn-primary">Create DC (Draft)</button>
+                            <button type="button" class="btn-secondary" onclick="switchView('deliveryChannels')">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- DC Detail View -->
+            <section id="dcDetailView" class="view">
+                <div class="dc-detail-container" id="dcDetailContainer">
+                    <!-- Will be populated dynamically -->
+                </div>
+            </section>
+
+            <!-- Purchase Requests View -->
+            <section id="purchaseRequestsView" class="view">
+                <!-- PR Header with filters inline -->
+                <div class="pr-header-bar">
+                    <div class="pr-filters">
+                        <button class="pr-filter-btn active" data-filter="all">All</button>
+                        <button class="pr-filter-btn" data-filter="Request">Pending</button>
+                        <button class="pr-filter-btn" data-filter="Quoted">Quoted</button>
+                        <button class="pr-filter-btn" data-filter="Approved">Approved</button>
+                        <button class="pr-filter-btn" data-filter="Ordered">Ordered</button>
+                        <button class="pr-filter-btn" data-filter="In Transit">In Transit</button>
+                        <button class="pr-filter-btn" data-filter="Received">Received</button>
+                        <button class="pr-filter-btn" data-filter="Closed">Closed</button>
+                    </div>
+                    <button class="btn-new-pr" onclick="switchView('createPR')">+ New Request</button>
+                </div>
+                
+                <!-- PR List -->
+                <div class="pr-list" id="prList">
+                    <!-- Will be populated dynamically -->
+                </div>
+            </section>
+
+            <!-- Create PR View -->
+            <section id="createPRView" class="view">
+                <div class="view-header">
+                    <div>
+                        <h2>New Purchase Request</h2>
+                        <p class="view-subtitle">Request items for procurement</p>
+                    </div>
+                </div>
+                
+                <div class="form-container">
+                    <form id="createPRForm" onsubmit="createPR(event)">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label>Item Name *</label>
+                                <input type="text" id="prItemName" required placeholder="What do you need?">
+                            </div>
+                            <div class="form-group">
+                                <label>Quantity *</label>
+                                <input type="number" id="prQuantity" min="1" value="1" required>
+                            </div>
+                            <div class="form-group full-width">
+                                <label>Description / Specifications</label>
+                                <textarea id="prDescription" rows="2" placeholder="Specs, links, model numbers..."></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label>Project / Event *</label>
+                                <input type="text" id="prProject" required placeholder="Which project needs this?">
+                            </div>
+                            <div class="form-group">
+                                <label>Department *</label>
+                                <select id="prDepartment" required>
+                                    <option value="">Select Department</option>
+                                    <option value="Software">Software</option>
+                                    <option value="Embedded">Embedded</option>
+                                    <option value="Creative">Creative</option>
+                                    <option value="Business Dev">Business Dev</option>
+                                    <option value="Operations">Operations</option>
+                                    <option value="HR & Admin">HR & Admin</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Requested By *</label>
+                                <input type="text" id="prRequestedBy" required placeholder="Your name">
+                            </div>
+                            <div class="form-group">
+                                <label>Priority *</label>
+                                <select id="prPriority" required>
+                                    <option value="Low">Low</option>
+                                    <option value="Medium" selected>Medium</option>
+                                    <option value="High">High</option>
+                                    <option value="Urgent">🔥 Urgent</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Needed By *</label>
+                                <input type="date" id="prNeededBy" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Suggested Vendor</label>
+                                <input type="text" id="prVendor" placeholder="If known">
+                            </div>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="submit" class="btn-primary">Submit Request</button>
+                            <button type="button" class="btn-secondary" onclick="switchView('purchaseRequests')">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- PR Detail View -->
+            <section id="prDetailView" class="view">
+                <div class="pr-detail-container" id="prDetailContainer">
+                    <!-- Will be populated dynamically -->
+                </div>
+            </section>
+
+            <!-- Daily Log View -->
+            <section id="dailyLogView" class="view">
+                <div class="view-header">
+                    <div>
+                        <h2>📋 Daily Inventory Log</h2>
+                        <p class="view-subtitle">Track R&D checkouts and returns</p>
+                    </div>
+                    <button class="btn-primary" onclick="switchView('checkoutItem')">📤 New Checkout</button>
+                </div>
+                
+                <!-- Log Filters -->
+                <div class="log-filters">
+                    <button class="log-filter-btn active" data-filter="all" onclick="filterDailyLog('all')">All</button>
+                    <button class="log-filter-btn" data-filter="Requested" onclick="filterDailyLog('Requested')">📋 Requested</button>
+                    <button class="log-filter-btn" data-filter="Handed Over" onclick="filterDailyLog('Handed Over')">🤝 Handed Over</button>
+                    <button class="log-filter-btn" data-filter="Returned" onclick="filterDailyLog('Returned')">✅ Returned</button>
+                </div>
+                
+                <!-- Log List -->
+                <div class="log-list" id="dailyLogList">
+                    <!-- Will be populated dynamically -->
+                </div>
+            </section>
+
+            <!-- Checkout Item View -->
+            <section id="checkoutItemView" class="view">
+                <div class="view-header">
+                    <div>
+                        <h2>📤 Checkout Item</h2>
+                        <p class="view-subtitle">Hand over inventory for R&D use</p>
+                    </div>
+                </div>
+                
+                <div class="form-container">
+                    <form id="checkoutForm" onsubmit="createCheckout(event)">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label>Select Item *</label>
+                                <select id="checkoutItemSelect" required onchange="updateCheckoutItemInfo()">
+                                    <option value="">-- Select an item --</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Quantity *</label>
+                                <input type="number" id="checkoutQty" min="1" value="1" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Team Member *</label>
+                                <input type="text" id="checkoutMember" required placeholder="Who is taking this?">
+                            </div>
+                            <div class="form-group">
+                                <label>Purpose / Project *</label>
+                                <input type="text" id="checkoutPurpose" required placeholder="R&D purpose...">
+                            </div>
+                            <div class="form-group">
+                                <label>Expected Return Date *</label>
+                                <input type="date" id="checkoutReturnDate" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Handed Over By</label>
+                                <input type="text" id="checkoutHandedBy" placeholder="Your name">
+                            </div>
+                            <div class="form-group full-width">
+                                <label>Notes</label>
+                                <textarea id="checkoutNotes" rows="2" placeholder="Any special instructions..."></textarea>
+                            </div>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="submit" class="btn-primary">📤 Checkout Item</button>
+                            <button type="button" class="btn-secondary" onclick="switchView('dailyLog')">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Product Builds List View -->
+            <section id="buildsView" class="view">
+                <div class="toolbar">
+                    <div class="filter-group">
+                        <button class="build-filter-btn active" data-filter="all" onclick="filterBuilds('all')">All</button>
+                        <button class="build-filter-btn" data-filter="In Progress" onclick="filterBuilds('In Progress')">🔧 In Progress</button>
+                        <button class="build-filter-btn" data-filter="Completed" onclick="filterBuilds('Completed')">✅ Completed</button>
+                        <button class="build-filter-btn" data-filter="Cancelled" onclick="filterBuilds('Cancelled')">❌ Cancelled</button>
+                    </div>
+                    <button class="btn-primary" onclick="switchView('createBuild')">+ New Build</button>
+                </div>
+                <div id="buildsList" class="builds-list">
+                    <!-- Builds will be loaded here -->
+                </div>
+            </section>
+
+            <!-- Create Build View -->
+            <section id="createBuildView" class="view">
+                <div class="card form-card">
+                    <h3>🔨 Build New Product</h3>
+                    <form id="createBuildForm" onsubmit="createBuild(event)">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label>Product Name *</label>
+                                <input type="text" id="buildProductName" required placeholder="e.g., BATAK PRO Unit #5">
+                            </div>
+                            <div class="form-group">
+                                <label>Target Category</label>
+                                <select id="buildTargetCategory">
+                                    <option value="Event Equipment">Event Equipment</option>
+                                    <option value="Electronics">Electronics</option>
+                                    <option value="IT Assets">IT Assets</option>
+                                    <option value="Sales">Sales (Non-returnable)</option>
+                                </select>
+                            </div>
+                            <div class="form-group full-width">
+                                <label>Description</label>
+                                <textarea id="buildDescription" rows="2" placeholder="What is this product for?"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label>Created By *</label>
+                                <input type="text" id="buildCreatedBy" required placeholder="Your name">
+                            </div>
+                            <div class="form-group">
+                                <label>Estimated Value (₹)</label>
+                                <input type="number" id="buildEstValue" min="0" placeholder="Final product value">
+                            </div>
+                        </div>
+                        
+                        <h4 style="margin: 24px 0 16px; color: var(--primary-light);">📦 Select Components</h4>
+                        
+                        <div class="build-components-section">
+                            <div class="build-search-box">
+                                <input type="text" id="buildItemSearch" placeholder="Search components..." onkeyup="filterBuildItems()">
+                            </div>
+                            
+                            <div class="build-items-container">
+                                <div class="build-available-items">
+                                    <h5>Available Components</h5>
+                                    <div id="buildAvailableItemsList" class="build-items-list">
+                                        <!-- Available items will be listed here -->
+                                    </div>
+                                </div>
+                                
+                                <div class="build-selected-items">
+                                    <h5>Selected Components (<span id="buildSelectedCount">0</span>)</h5>
+                                    <div id="buildSelectedItemsList" class="build-items-list">
+                                        <!-- Selected items will be listed here -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="submit" class="btn-primary">🔨 Create Build</button>
+                            <button type="button" class="btn-secondary" onclick="switchView('builds')">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Build Detail View -->
+            <section id="buildDetailView" class="view">
+                <div id="buildDetailContainer">
+                    <!-- Build details will be loaded here -->
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Edit Modal -->
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Edit Item</h3>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+            <form id="editItemForm" onsubmit="saveEdit(event)">
+                <input type="hidden" id="editRowIndex">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Item ID</label>
+                        <input type="text" id="editItemId" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>Item Name *</label>
+                        <input type="text" id="editItemName" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Category *</label>
+                        <select id="editItemCategory" required onchange="updateEditSubCategory(); toggleEditRentalFields()">
+                            <option value="IT Assets">IT Assets</option>
+                            <option value="Electronics">Electronics</option>
+                            <option value="Event Equipment">Event Equipment</option>
+                            <option value="Mechanical Division">Mechanical Division</option>
+                            <option value="Office Assets">Office Assets</option>
+                            <option value="Dead Stock">Dead Stock</option>
+                            <option value="Rented Equipment">🔄 Rented Equipment</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Sub-Category</label>
+                        <select id="editItemSubCategory">
+                            <option value="">Select Sub-Category</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Quantity *</label>
+                        <input type="number" id="editItemQuantity" min="1" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select id="editItemStatus">
+                            <option value="Available">Available</option>
+                            <option value="In Use">In Use</option>
+                            <option value="Checked Out">Checked Out</option>
+                            <option value="Maintenance">Maintenance</option>
+                            <option value="Dead Stock">Dead Stock</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Location</label>
+                        <input type="text" id="editItemLocation">
+                    </div>
+                    <div class="form-group">
+                        <label>Value (₹)</label>
+                        <input type="number" id="editItemValue" min="0">
+                    </div>
+                    <div class="form-group full-width">
+                        <label>Notes</label>
+                        <textarea id="editItemNotes" rows="3"></textarea>
+                    </div>
+                    
+                    <!-- Rental-specific fields (hidden by default) -->
+                    <div id="editRentalFields" class="rental-fields" style="display: none; grid-column: span 2;">
+                        <h4 style="margin: 20px 0 15px; color: var(--primary-light);">🔄 Rental Details</h4>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label>Return Date</label>
+                                <input type="date" id="editItemReturnDate">
+                            </div>
+                            <div class="form-group">
+                                <label>Event/Project</label>
+                                <input type="text" id="editItemEventProject">
+                            </div>
+                            <div class="form-group">
+                                <label>Vendor Name</label>
+                                <input type="text" id="editItemVendorName">
+                            </div>
+                            <div class="form-group">
+                                <label>Vendor Contact</label>
+                                <input type="text" id="editItemVendorContact">
+                            </div>
+                            <div class="form-group">
+                                <label>Rental Cost (₹)</label>
+                                <input type="number" id="editItemRentalCost" min="0">
+                            </div>
+                            <div class="form-group">
+                                <label>Deposit (₹)</label>
+                                <input type="number" id="editItemDeposit" min="0">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">Save Changes</button>
+                    <button type="button" class="btn-danger" onclick="deleteItem()">Delete Item</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Check Out Modal -->
+    <div id="checkoutModal" class="modal">
+        <div class="modal-content modal-lg">
+            <div class="modal-header">
+                <h3>📤 Check Out Items</h3>
+                <button class="close-btn" onclick="closeCheckoutModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                    <p style="color: var(--text-muted); margin: 0;">Verify all items before dispatch.</p>
+                    <button class="btn-select-all" onclick="selectAllCheckout()">✓ Select All</button>
+                </div>
+                <div id="checkoutItemsList" class="checkout-items-list">
+                    <!-- Items will be loaded here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <div class="checkout-summary">
+                    <span id="checkoutCount">0 / 0 items verified</span>
+                </div>
+                <button class="btn-secondary" onclick="closeCheckoutModal()">Cancel</button>
+                <button class="btn-checkout-confirm" id="confirmCheckoutBtn" onclick="confirmCheckout()" disabled>
+                    Confirm Check Out →
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Check In Modal -->
+    <div id="checkinModal" class="modal">
+        <div class="modal-content modal-lg">
+            <div class="modal-header">
+                <h3>📥 Check In Items</h3>
+                <button class="close-btn" onclick="closeCheckinModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                    <p style="color: var(--text-muted); margin: 0;">Verify all returned items.</p>
+                    <button class="btn-select-all" onclick="selectAllCheckin()">✓ Select All</button>
+                </div>
+                <div id="checkinItemsList" class="checkout-items-list">
+                    <!-- Items will be loaded here -->
+                </div>
+                <div class="checkin-notes" style="margin-top: 16px;">
+                    <label>Notes (damage, missing items, etc.)</label>
+                    <textarea id="checkinNotes" placeholder="Any issues with returned items..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <div class="checkout-summary">
+                    <span id="checkinCount">0 / 0 items returned</span>
+                </div>
+                <button class="btn-secondary" onclick="closeCheckinModal()">Cancel</button>
+                <button class="btn-checkin-confirm" id="confirmCheckinBtn" onclick="confirmCheckin()">
+                    Confirm Check In & Close DC ✓
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
+
+    <!-- Flatpickr Date Picker -->
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <!-- html2pdf for PDF download -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <!-- Logo data for PDF -->
+    <script src="logo-data.js"></script>
+    <script src="app.js"></script>
+    <script>
+        // Initialize Flatpickr for all date inputs
+        document.addEventListener('DOMContentLoaded', function() {
+            flatpickr('input[type="date"]', {
+                dateFormat: 'Y-m-d',
+                theme: 'dark',
+                allowInput: true,
+                disableMobile: false
+            });
+        });
+    </script>
+</body>
+</html>
