@@ -12,35 +12,42 @@ exports.handler = async (event, context) => {
     });
     let csvText = await response.text();
     
-    // Fix: Handle newlines within CSV fields (Google Sheets escapes them as \n in quoted fields)
-    // Reconstruct broken lines by detecting incomplete rows
-    const lines = csvText.split('\n');
-    const fixedLines = [];
+    // Fix: Google Sheets CSV with multiline fields needs proper parsing
+    // Use a simple approach: count unescaped quotes
+    const lines = [];
     let currentLine = '';
-    let inQuotes = false;
+    let openQuotes = false;
+    let i = 0;
     
-    for (const line of lines) {
-      // Count quotes to determine if we're inside a quoted field
-      const quoteCount = (line.match(/"[^"]*(?:""[^"]*)*"/g) || []).length;
-      const rawQuotes = (line.match(/"/g) || []).length;
+    while (i < csvText.length) {
+      const char = csvText[i];
+      const nextChar = csvText[i + 1];
       
-      if (currentLine === '') {
-        currentLine = line;
-        // Toggle inQuotes based on odd/even quote count at start
-        inQuotes = rawQuotes % 2 === 1;
-      } else {
-        currentLine += '\n' + line;
-        // If line ends with quote, we're exiting quoted field
-        if (line.trim().endsWith('"') && rawQuotes % 2 === 0) {
-          fixedLines.push(currentLine);
-          currentLine = '';
-          inQuotes = false;
+      if (char === '"') {
+        if (openQuotes && nextChar === '"') {
+          // Escaped quote - include one quote and skip next
+          currentLine += '"';
+          i += 2;
+          continue;
         }
+        openQuotes = !openQuotes;
       }
+      
+      if (char === '\n' && openQuotes) {
+        // Inside quotes - convert to space
+        currentLine += ' ';
+      } else if (char === '\n' && !openQuotes) {
+        // Outside quotes - end of row
+        if (currentLine.trim()) lines.push(currentLine);
+        currentLine = '';
+      } else {
+        currentLine += char;
+      }
+      i++;
     }
-    if (currentLine) fixedLines.push(currentLine);
+    if (currentLine.trim()) lines.push(currentLine);
     
-    const fixedCsv = fixedLines.join('\n');
+    const fixedCsv = lines.join('\n');
     
     return {
       statusCode: 200,

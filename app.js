@@ -153,34 +153,52 @@ function switchView(viewName) {
     document.getElementById('pageTitle').textContent = titles[viewName] || 'Dashboard';
 }
 
-// Parse CSV string into array of arrays - SIMPLIFIED VERSION
+// Parse CSV string into array of arrays - handles multiline fields
 function parseCSV(csv) {
-    const lines = csv.trim().split('\n');
     const result = [];
+    let currentRow = [];
+    let currentField = '';
+    let inQuotes = false;
+    let i = 0;
     
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
+    while (i < csv.length) {
+        const char = csv[i];
+        const nextChar = csv[i + 1];
         
-        // Handle quoted fields properly
-        const row = [];
-        let currentField = '';
-        let inQuotes = false;
-        
-        for (let j = 0; j < line.length; j++) {
-            const char = line[j];
-            
-            if (char === '"') {
-                inQuotes = !inQuotes;
-            } else if (char === ',' && !inQuotes) {
-                row.push(currentField.trim());
-                currentField = '';
-            } else {
-                currentField += char;
+        if (char === '"') {
+            if (inQuotes && nextChar === '"') {
+                // Escaped quote ("") - add one quote char
+                currentField += '"';
+                i += 2;
+                continue;
             }
+            inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+            // Field separator
+            currentRow.push(currentField.trim());
+            currentField = '';
+        } else if ((char === '\n' || char === '\r') && !inQuotes) {
+            // Row separator (only outside quotes)
+            if (char === '\r' && nextChar === '\n') i++; // Handle CRLF
+            currentRow.push(currentField.trim());
+            if (currentRow.some(f => f)) { // Skip empty rows
+                result.push(currentRow);
+            }
+            currentRow = [];
+            currentField = '';
+        } else if (char !== '\r') {
+            // Regular char (skip \r)
+            currentField += char;
         }
-        row.push(currentField.trim()); // Last field
-        result.push(row);
+        i++;
+    }
+    
+    // Don't forget last field/row
+    if (currentField || currentRow.length > 0) {
+        currentRow.push(currentField.trim());
+        if (currentRow.some(f => f)) {
+            result.push(currentRow);
+        }
     }
     
     console.log('📊 parseCSV: Parsed', result.length, 'rows, first row has', result[0]?.length, 'columns');
