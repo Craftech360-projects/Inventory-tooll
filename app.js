@@ -324,21 +324,37 @@ function updateDashboard() {
         </div>
     `).join('');
     
+    // Helper: Convert Excel serial date to proper date
+    function parseDate(dateVal) {
+        if (!dateVal) return new Date(0);
+        // Excel serial date (number like 46072) - Excel epoch is Dec 30, 1899
+        if (typeof dateVal === 'number' && dateVal > 30000) {
+            return new Date(Math.round((dateVal - 25569) * 86400 * 1000));
+        }
+        // ISO string or other format
+        const d = new Date(dateVal);
+        return isNaN(d.getTime()) ? new Date(0) : d;
+    }
+
     // Recent Items
     const recentList = document.getElementById('recentList');
     const recentItems = [...inventoryData]
-        .sort((a, b) => new Date(b.addedDate) - new Date(a.addedDate))
+        .sort((a, b) => parseDate(b.addedDate) - parseDate(a.addedDate))
         .slice(0, 5);
     
-    recentList.innerHTML = recentItems.map(item => `
+    recentList.innerHTML = recentItems.map(item => {
+        const d = parseDate(item.addedDate);
+        const dateStr = d.getTime() > 0 ? d.toLocaleDateString('en-GB') : '-';
+        return `
         <div class="recent-item">
             <div>
                 <div class="recent-item-name">${item.name}</div>
                 <div class="recent-item-category">${item.category}</div>
             </div>
-            <span class="recent-item-date">${item.addedDate}</span>
+            <span class="recent-item-date">${dateStr}</span>
         </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 // Update Inventory Table
