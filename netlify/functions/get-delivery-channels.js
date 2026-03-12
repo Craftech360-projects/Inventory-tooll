@@ -10,7 +10,37 @@ exports.handler = async (event, context) => {
         'Pragma': 'no-cache'
       }
     });
-    const csvText = await response.text();
+    let csvText = await response.text();
+    
+    // Fix: Handle newlines within CSV fields (Google Sheets escapes them as \n in quoted fields)
+    // Reconstruct broken lines by detecting incomplete rows
+    const lines = csvText.split('\n');
+    const fixedLines = [];
+    let currentLine = '';
+    let inQuotes = false;
+    
+    for (const line of lines) {
+      // Count quotes to determine if we're inside a quoted field
+      const quoteCount = (line.match(/"[^"]*(?:""[^"]*)*"/g) || []).length;
+      const rawQuotes = (line.match(/"/g) || []).length;
+      
+      if (currentLine === '') {
+        currentLine = line;
+        // Toggle inQuotes based on odd/even quote count at start
+        inQuotes = rawQuotes % 2 === 1;
+      } else {
+        currentLine += '\n' + line;
+        // If line ends with quote, we're exiting quoted field
+        if (line.trim().endsWith('"') && rawQuotes % 2 === 0) {
+          fixedLines.push(currentLine);
+          currentLine = '';
+          inQuotes = false;
+        }
+      }
+    }
+    if (currentLine) fixedLines.push(currentLine);
+    
+    const fixedCsv = fixedLines.join('\n');
     
     return {
       statusCode: 200,
@@ -19,7 +49,7 @@ exports.handler = async (event, context) => {
         'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'no-cache, no-store, must-revalidate'
       },
-      body: csvText
+      body: fixedCsv
     };
   } catch (error) {
     return {
