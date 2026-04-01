@@ -53,6 +53,16 @@ function doGet(e) {
         data = logSheet ? logSheet.getDataRange().getValues() : [];
         break;
         
+      case 'employees':
+        const empSheet = ss.getSheetByName('Employees');
+        data = empSheet ? empSheet.getDataRange().getValues() : [];
+        break;
+        
+      case 'employeeAssets':
+        const eaSheet = ss.getSheetByName('EmployeeAssets');
+        data = eaSheet ? eaSheet.getDataRange().getValues() : [];
+        break;
+        
       default:
         data = { error: 'Unknown action: ' + action };
     }
@@ -388,6 +398,84 @@ function doPost(e) {
         }
       }
       result = { success: true };
+    }
+    
+    // ==================== EMPLOYEES ====================
+    
+    else if (action === 'addEmployee') {
+      let empSheet = ss.getSheetByName('Employees');
+      if (!empSheet) {
+        empSheet = ss.insertSheet('Employees');
+        empSheet.appendRow(['empId', 'name', 'department', 'role', 'joinDate', 'phone', 'email', 'createdAt']);
+      }
+      empSheet.appendRow([
+        data.empId,
+        data.name,
+        data.department,
+        data.role || '',
+        data.joinDate || '',
+        data.phone || '',
+        data.email || '',
+        data.createdAt || new Date().toISOString()
+      ]);
+      result = { success: true, message: 'Employee added' };
+    }
+    
+    else if (action === 'assignAsset') {
+      let eaSheet = ss.getSheetByName('EmployeeAssets');
+      if (!eaSheet) {
+        eaSheet = ss.insertSheet('EmployeeAssets');
+        eaSheet.appendRow(['id', 'empId', 'itemId', 'itemName', 'serialNo', 'assignedDate', 'returnedDate', 'status', 'notes']);
+      }
+      eaSheet.appendRow([
+        data.id,
+        data.empId,
+        data.itemId,
+        data.itemName,
+        data.serialNo || '',
+        data.assignedDate,
+        '',
+        'Active',
+        data.notes || ''
+      ]);
+      
+      // Update inventory item status to 'In Use'
+      const invSheet = ss.getSheetByName('Sheet1') || ss.getSheets()[0];
+      const invData = invSheet.getDataRange().getValues();
+      for (let i = 1; i < invData.length; i++) {
+        if (invData[i][0] == data.itemId) {
+          invSheet.getRange(i + 1, 6).setValue('In Use'); // Status column
+          break;
+        }
+      }
+      
+      result = { success: true, message: 'Asset assigned to employee' };
+    }
+    
+    else if (action === 'returnAsset') {
+      const eaSheet = ss.getSheetByName('EmployeeAssets');
+      if (eaSheet) {
+        const eaData = eaSheet.getDataRange().getValues();
+        for (let i = 1; i < eaData.length; i++) {
+          if (eaData[i][0] == data.id) {
+            eaSheet.getRange(i + 1, 7).setValue(data.returnedDate); // returnedDate
+            eaSheet.getRange(i + 1, 8).setValue('Returned'); // status
+            
+            // Update inventory item status back to 'Available'
+            const itemId = eaData[i][2];
+            const invSheet = ss.getSheetByName('Sheet1') || ss.getSheets()[0];
+            const invData = invSheet.getDataRange().getValues();
+            for (let j = 1; j < invData.length; j++) {
+              if (invData[j][0] == itemId) {
+                invSheet.getRange(j + 1, 6).setValue('Available');
+                break;
+              }
+            }
+            break;
+          }
+        }
+      }
+      result = { success: true, message: 'Asset returned' };
     }
     
     else {

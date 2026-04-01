@@ -3505,7 +3505,351 @@ switchView = function(viewName) {
     }
 };
 
-// ==================== END PRODUCT BUILDS ====================
+// ==================== EMPLOYEE ASSETS ====================
+
+let employeesData = [];
+let employeeAssetsData = [];
+
+async function loadEmployeesData() {
+    try {
+        const response = await fetch(CONFIG.APPS_SCRIPT_URL + '?action=employees');
+        const data = await response.json();
+        employeesData = data.length > 0 ? data.slice(1).map(row => ({
+            empId: row[0],
+            name: row[1],
+            department: row[2],
+            role: row[3],
+            joinDate: row[4],
+            phone: row[5],
+            email: row[6],
+            createdAt: row[7]
+        })) : [];
+        
+        const assetsResponse = await fetch(CONFIG.APPS_SCRIPT_URL + '?action=employeeAssets');
+        const assetsData = await assetsResponse.json();
+        employeeAssetsData = assetsData.length > 0 ? assetsData.slice(1).map(row => ({
+            id: row[0],
+            empId: row[1],
+            itemId: row[2],
+            itemName: row[3],
+            serialNo: row[4],
+            assignedDate: row[5],
+            returnedDate: row[6],
+            status: row[7],
+            notes: row[8]
+        })) : [];
+        
+        updateEmployeeStats();
+    } catch (error) {
+        console.error('Error loading employees data:', error);
+        employeesData = [];
+        employeeAssetsData = [];
+    }
+}
+
+function updateEmployeeStats() {
+    document.getElementById('totalEmployees').textContent = employeesData.length;
+    const activeAssets = employeeAssetsData.filter(a => a.status === 'Active').length;
+    document.getElementById('employeeActiveAssets').textContent = activeAssets;
+    document.getElementById('employeeTotalAssets').textContent = employeeAssetsData.length;
+}
+
+function renderEmployees() {
+    const container = document.getElementById('employeesList');
+    const searchTerm = document.getElementById('employeeSearch')?.value?.toLowerCase() || '';
+    
+    const filtered = employeesData.filter(emp => 
+        emp.name?.toLowerCase().includes(searchTerm) || 
+        emp.department?.toLowerCase().includes(searchTerm) ||
+        emp.role?.toLowerCase().includes(searchTerm)
+    );
+    
+    if (filtered.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div style="font-size: 48px; margin-bottom: 16px;">👥</div>
+                <h3>No Employees Found</h3>
+                <p>Add employees to track their company assets</p>
+                <button class="btn-primary" onclick="switchView('addEmployee')">+ Add First Employee</button>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = filtered.map(emp => {
+        const assets = employeeAssetsData.filter(a => a.empId === emp.empId && a.status === 'Active');
+        const assetCount = assets.length;
+        
+        return `
+            <div class="employee-card" onclick="viewEmployeeDetail('${emp.empId}')" style="background: white; border-radius: 12px; padding: 20px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,0.12)'" onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 2px 8px rgba(0,0,0,0.08)'">
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div>
+                        <h3 style="margin: 0 0 4px 0; color: #1e293b;">${emp.name}</h3>
+                        <p style="margin: 0; color: #64748b; font-size: 14px;">${emp.role || 'No role'} • ${emp.department}</p>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="background: ${assetCount > 0 ? '#22c55e' : '#e2e8f0'}; color: ${assetCount > 0 ? 'white' : '#64748b'}; padding: 6px 12px; border-radius: 20px; font-size: 14px; font-weight: 600;">
+                            ${assetCount} Asset${assetCount !== 1 ? 's' : ''}
+                        </div>
+                    </div>
+                </div>
+                ${emp.phone ? `<p style="margin: 12px 0 0 0; color: #64748b; font-size: 13px;">📱 ${emp.phone}</p>` : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+function filterEmployees() {
+    renderEmployees();
+}
+
+async function addEmployee(event) {
+    event.preventDefault();
+    
+    const empData = {
+        empId: 'EMP-' + Date.now(),
+        name: document.getElementById('empName').value,
+        department: document.getElementById('empDepartment').value,
+        role: document.getElementById('empRole').value,
+        joinDate: document.getElementById('empJoinDate').value,
+        phone: document.getElementById('empPhone').value,
+        email: document.getElementById('empEmail').value,
+        createdAt: new Date().toISOString()
+    };
+    
+    try {
+        showToast('Adding employee...', 'success');
+        
+        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=addEmployee', {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(empData)
+        });
+        
+        showToast('✅ Employee added!', 'success');
+        
+        setTimeout(() => {
+            document.getElementById('addEmployeeForm').reset();
+            loadEmployeesData();
+            switchView('employeeAssets');
+        }, 1500);
+        
+    } catch (error) {
+        console.error('Error adding employee:', error);
+        showToast('Failed to add employee', 'error');
+    }
+}
+
+let currentEmployeeId = null;
+
+function viewEmployeeDetail(empId) {
+    currentEmployeeId = empId;
+    const emp = employeesData.find(e => e.empId === empId);
+    if (!emp) return;
+    
+    const assets = employeeAssetsData.filter(a => a.empId === empId);
+    const activeAssets = assets.filter(a => a.status === 'Active');
+    const returnedAssets = assets.filter(a => a.status === 'Returned');
+    
+    const content = document.getElementById('employeeDetailContent');
+    content.innerHTML = `
+        <div class="card" style="margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: start;">
+                <div>
+                    <h2 style="margin: 0 0 8px 0;">👤 ${emp.name}</h2>
+                    <p style="margin: 0; color: #64748b;">${emp.role || 'No designation'} • ${emp.department}</p>
+                    <p style="margin: 8px 0 0 0; color: #64748b; font-size: 14px;">
+                        📅 Joined: ${emp.joinDate || 'Not set'}
+                    </p>
+                </div>
+                <button class="btn-primary" onclick="openAssignAsset('${empId}')">+ Assign Asset</button>
+            </div>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px;">
+            <div class="stat-card" style="background: #f0fdf4; padding: 16px; border-radius: 12px; text-align: center;">
+                <div style="font-size: 24px; font-weight: bold; color: #22c55e;">${activeAssets.length}</div>
+                <div style="color: #64748b; font-size: 14px;">Active Assets</div>
+            </div>
+            <div class="stat-card" style="background: #f8fafc; padding: 16px; border-radius: 12px; text-align: center;">
+                <div style="font-size: 24px; font-weight: bold; color: #64748b;">${returnedAssets.length}</div>
+                <div style="color: #64748b; font-size: 14px;">Returned</div>
+            </div>
+            <div class="stat-card" style="background: #fef3c7; padding: 16px; border-radius: 12px; text-align: center;">
+                <div style="font-size: 24px; font-weight: bold; color: #f59e0b;">${assets.length}</div>
+                <div style="color: #64748b; font-size: 14px;">Total Assigned</div>
+            </div>
+        </div>
+        
+        <h3 style="margin-bottom: 12px;">📦 Current Assets</h3>
+        ${activeAssets.length === 0 ? '<p style="color: #64748b;">No active assets assigned</p>' : 
+            activeAssets.map(asset => `
+                <div style="background: white; border-radius: 8px; padding: 16px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <strong>${asset.itemName}</strong>
+                        ${asset.serialNo ? `<span style="color: #64748b; font-size: 13px;"> (S/N: ${asset.serialNo})</span>` : ''}
+                        <p style="margin: 4px 0 0 0; color: #64748b; font-size: 13px;">Assigned: ${asset.assignedDate}</p>
+                    </div>
+                    <button class="btn-secondary" onclick="returnAsset('${asset.id}')" style="padding: 6px 12px; font-size: 13px;">↩️ Return</button>
+                </div>
+            `).join('')
+        }
+        
+        ${returnedAssets.length > 0 ? `
+            <h3 style="margin: 24px 0 12px 0; color: #64748b;">📋 History (Returned)</h3>
+            ${returnedAssets.map(asset => `
+                <div style="background: #f8fafc; border-radius: 8px; padding: 12px; margin-bottom: 8px; opacity: 0.7;">
+                    <strong>${asset.itemName}</strong>
+                    <p style="margin: 4px 0 0 0; color: #64748b; font-size: 13px;">
+                        ${asset.assignedDate} → ${asset.returnedDate}
+                    </p>
+                </div>
+            `).join('')}
+        ` : ''}
+    `;
+    
+    switchView('employeeDetail');
+}
+
+function openAssignAsset(empId) {
+    currentEmployeeId = empId;
+    
+    // Populate employee dropdown
+    const empSelect = document.getElementById('assignEmpId');
+    empSelect.innerHTML = employeesData.map(emp => 
+        `<option value="${emp.empId}" ${emp.empId === empId ? 'selected' : ''}>${emp.name} - ${emp.department}</option>`
+    ).join('');
+    
+    // Popate available items (status = Available)
+    const availableItems = inventoryData.filter(item => item.status === 'Available');
+    const itemSelect = document.getElementById('assignItemId');
+    itemSelect.innerHTML = '<option value="">Select Available Asset</option>' + 
+        availableItems.map(item => 
+            `<option value="${item.itemId}" data-name="${item.name}" data-category="${item.category}" data-value="${item.value}">${item.name} (${item.category})</option>`
+        ).join('');
+    
+    document.getElementById('assignDate').value = new Date().toISOString().split('T')[0];
+    document.getElementById('assetPreview').style.display = 'none';
+    
+    switchView('addAssetToEmployee');
+}
+
+function updateAssetDetails() {
+    const select = document.getElementById('assignItemId');
+    const option = select.options[select.selectedIndex];
+    
+    if (option && option.value) {
+        document.getElementById('assetPreview').style.display = 'block';
+        document.getElementById('previewAssetName').textContent = option.dataset.name;
+        document.getElementById('previewAssetCategory').textContent = option.dataset.category;
+        document.getElementById('previewAssetValue').textContent = '₹' + (option.dataset.value || '0');
+    } else {
+        document.getElementById('assetPreview').style.display = 'none';
+    }
+}
+
+async function assignAssetToEmployee(event) {
+    event.preventDefault();
+    
+    const assetData = {
+        id: 'EA-' + Date.now(),
+        empId: document.getElementById('assignEmpId').value,
+        itemId: document.getElementById('assignItemId').value,
+        itemName: document.getElementById('assignItemId').options[document.getElementById('assignItemId').selectedIndex].text.split(' (')[0],
+        serialNo: document.getElementById('assignSerialNo').value,
+        assignedDate: document.getElementById('assignDate').value,
+        notes: document.getElementById('assignNotes').value,
+        status: 'Active'
+    };
+    
+    try {
+        showToast('Assigning asset...', 'success');
+        
+        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=assignAsset', {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(assetData)
+        });
+        
+        showToast('✅ Asset assigned!', 'success');
+        
+        setTimeout(async () => {
+            document.getElementById('assignAssetForm').reset();
+            await loadEmployeesData();
+            await loadData();
+            viewEmployeeDetail(currentEmployeeId);
+        }, 1500);
+        
+    } catch (error) {
+        console.error('Error assigning asset:', error);
+        showToast('Failed to assign asset', 'error');
+    }
+}
+
+async function returnAsset(assetId) {
+    if (!confirm('Mark this asset as returned?')) return;
+    
+    try {
+        showToast('Processing return...', 'success');
+        
+        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=returnAsset', {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                id: assetId,
+                returnedDate: new Date().toISOString().split('T')[0]
+            })
+        });
+        
+        showToast('✅ Asset returned!', 'success');
+        
+        setTimeout(async () => {
+            await loadEmployeesData();
+            await loadData();
+            viewEmployeeDetail(currentEmployeeId);
+        }, 1500);
+        
+    } catch (error) {
+        console.error('Error returning asset:', error);
+        showToast('Failed to return asset', 'error');
+    }
+}
+
+function goBackToEmployeeDetail() {
+    if (currentEmployeeId) {
+        viewEmployeeDetail(currentEmployeeId);
+    } else {
+        switchView('employeeAssets');
+    }
+}
+
+// Update switchView for Employee views
+const empOriginalSwitchView = switchView;
+switchView = function(viewName) {
+    // Handle Employee Assets views
+    if (viewName === 'employeeAssets') {
+        loadEmployeesData().then(renderEmployees);
+    }
+    
+    // Call original
+    empOriginalSwitchView(viewName);
+    
+    // Update title for Employee views
+    const empTitles = {
+        employeeAssets: 'Employee Assets',
+        addEmployee: 'Add Employee',
+        employeeDetail: 'Employee Details',
+        addAssetToEmployee: 'Assign Asset'
+    };
+    if (empTitles[viewName]) {
+        document.getElementById('pageTitle').textContent = empTitles[viewName];
+    }
+};
+
+// ==================== END EMPLOYEE ASSETS ====================
 
 // Delete DC
 async function deleteDC(dcNumber) {
