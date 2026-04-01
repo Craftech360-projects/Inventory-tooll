@@ -5,7 +5,7 @@ const CONFIG = {
     // Using Netlify function to proxy CSV (avoids CORS issues)
     CSV_URL: '/.netlify/functions/get-inventory',
     // Google Apps Script for write operations (deployed from the spreadsheet)
-    APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxGpuUe8AkkQCrO9zB4uolgX2smc_Ih66k8VXrlWdB3794D5YuYckhaAoTq6TcozOHT/exec'
+    APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxh4EkJYjC1EjI7rrbMcza1_XPs5WOp5_7RQlJlro-QZhVl5P41fxQVIAOyT-wrprlf/exec'
 };
 
 const CATEGORY_PREFIXES = {
@@ -279,7 +279,7 @@ async function loadData() {
         // Update sync time
         const lastSyncEl = document.getElementById('lastSync');
         if (lastSyncEl) {
-            lastSyncEl.textContent = new Date().toLocaleTimeString();
+            lastSyncEl.textContent = new Date().toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
         }
         
         showToast('Data synced! ' + inventoryData.length + ' items loaded.', 'success');
@@ -3525,19 +3525,30 @@ async function loadEmployeesData() {
             createdAt: row[7]
         })) : [];
         
-        const assetsResponse = await fetch(CONFIG.APPS_SCRIPT_URL + '?action=employeeAssets');
-        const assetsData = await assetsResponse.json();
-        employeeAssetsData = assetsData.length > 0 ? assetsData.slice(1).map(row => ({
-            id: row[0],
-            empId: row[1],
-            itemId: row[2],
-            itemName: row[3],
-            serialNo: row[4],
-            assignedDate: row[5],
-            returnedDate: row[6],
-            status: row[7],
-            notes: row[8]
-        })) : [];
+        try {
+            const assetsResponse = await fetch(CONFIG.APPS_SCRIPT_URL + '?action=employeeAssets');
+            const assetsData = await assetsResponse.json();
+            console.log('Employee Assets Data:', assetsData);
+            
+            if (Array.isArray(assetsData) && assetsData.length > 1) {
+                employeeAssetsData = assetsData.slice(1).map(row => ({
+                    id: row[0],
+                    empId: row[1],
+                    itemId: row[2],
+                    itemName: row[3],
+                    serialNo: row[4],
+                    assignedDate: row[5] ? row[5].split('T')[0] : '',
+                    returnedDate: row[6] ? row[6].split('T')[0] : '',
+                    status: row[7],
+                    notes: row[8]
+                }));
+            } else {
+                employeeAssetsData = [];
+            }
+        } catch (err) {
+            console.error('Error loading employee assets:', err);
+            employeeAssetsData = [];
+        }
         
         updateEmployeeStats();
     } catch (error) {
@@ -3584,7 +3595,7 @@ function renderEmployees() {
             <div class="employee-card" onclick="viewEmployeeDetail('${emp.empId}')" style="background: white; border-radius: 12px; padding: 20px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,0.12)'" onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 2px 8px rgba(0,0,0,0.08)'">
                 <div style="display: flex; justify-content: space-between; align-items: start;">
                     <div>
-                        <h3 style="margin: 0 0 4px 0; color: #1e293b;">${emp.name}</h3>
+                        <h3 style="margin: 0 0 4px 0; color: #1e293b;">${emp.name}</h6>
                         <p style="margin: 0; color: #64748b; font-size: 14px;">${emp.role || 'No role'} • ${emp.department}</p>
                     </div>
                     <div style="text-align: right;">
@@ -3614,7 +3625,7 @@ async function addEmployee(event) {
         joinDate: document.getElementById('empJoinDate').value,
         phone: document.getElementById('empPhone').value,
         email: document.getElementById('empEmail').value,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toLocaleString('en-IN')
     };
     
     try {
@@ -3646,9 +3657,16 @@ let currentEmployeeId = null;
 function viewEmployeeDetail(empId) {
     currentEmployeeId = empId;
     const emp = employeesData.find(e => e.empId === empId);
-    if (!emp) return;
+    if (!emp) {
+        alert('Employee not found! empId: ' + empId + ', available: ' + JSON.stringify(employeesData.map(e => e.empId)));
+        return;
+    }
     
-    const assets = employeeAssetsData.filter(a => a.empId === empId);
+    console.log('Employee ID:', empId);
+    console.log('All assets:', employeeAssetsData);
+    console.log('Filtered assets:', employeeAssetsData.filter(a => String(a.empId) === String(empId)));
+    
+    const assets = employeeAssetsData.filter(a => String(a.empId) === String(empId));
     const activeAssets = assets.filter(a => a.status === 'Active');
     const returnedAssets = assets.filter(a => a.status === 'Returned');
     
@@ -3684,28 +3702,50 @@ function viewEmployeeDetail(empId) {
         
         <h3 style="margin-bottom: 12px;">📦 Current Assets</h3>
         ${activeAssets.length === 0 ? '<p style="color: #64748b;">No active assets assigned</p>' : 
-            activeAssets.map(asset => `
-                <div style="background: white; border-radius: 8px; padding: 16px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <strong>${asset.itemName}</strong>
-                        ${asset.serialNo ? `<span style="color: #64748b; font-size: 13px;"> (S/N: ${asset.serialNo})</span>` : ''}
-                        <p style="margin: 4px 0 0 0; color: #64748b; font-size: 13px;">Assigned: ${asset.assignedDate}</p>
-                    </div>
-                    <button class="btn-secondary" onclick="returnAsset('${asset.id}')" style="padding: 6px 12px; font-size: 13px;">↩️ Return</button>
-                </div>
-            `).join('')
+            `<table style="width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
+                <thead style="background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+                    <tr>
+                        <th style="padding: 12px; text-align: left; font-size: 13px; color: #64748b;">Product Name</th>
+                        <th style="padding: 12px; text-align: left; font-size: 13px; color: #64748b;">Assigned Date</th>
+                        <th style="padding: 12px; text-align: left; font-size: 13px; color: #64748b;">Return Date</th>
+                        <th style="padding: 12px; text-align: right; font-size: 13px; color: #64748b;">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${activeAssets.map(asset => `
+                        <tr style="border-bottom: 1px solid #f1f5f9;">
+                            <td style="padding: 12px; font-weight: 500;">${asset.itemName}</td>
+                            <td style="padding: 12px; color: #64748b;">${asset.assignedDate || '-'}</td>
+                            <td style="padding: 12px; color: #64748b;">${asset.returnedDate || '-'}</td>
+                            <td style="padding: 12px; text-align: right;">
+                                <button class="btn-secondary" onclick="returnAsset('${asset.id}')" style="padding: 4px 10px; font-size: 12px;">↩️ Return</button>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>`
         }
         
         ${returnedAssets.length > 0 ? `
             <h3 style="margin: 24px 0 12px 0; color: #64748b;">📋 History (Returned)</h3>
-            ${returnedAssets.map(asset => `
-                <div style="background: #f8fafc; border-radius: 8px; padding: 12px; margin-bottom: 8px; opacity: 0.7;">
-                    <strong>${asset.itemName}</strong>
-                    <p style="margin: 4px 0 0 0; color: #64748b; font-size: 13px;">
-                        ${asset.assignedDate} → ${asset.returnedDate}
-                    </p>
-                </div>
-            `).join('')}
+            <table style="width: 100%; border-collapse: collapse; background: #f8fafc; border-radius: 8px; overflow: hidden; opacity: 0.8;">
+                <thead style="border-bottom: 1px solid #e2e8f0;">
+                    <tr>
+                        <th style="padding: 10px; text-align: left; font-size: 12px; color: #64748b;">Product Name</th>
+                        <th style="padding: 10px; text-align: left; font-size: 12px; color: #64748b;">Assigned Date</th>
+                        <th style="padding: 10px; text-align: left; font-size: 12px; color: #64748b;">Returned Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${returnedAssets.map(asset => `
+                        <tr style="border-bottom: 1px solid #e2e8f0;">
+                            <td style="padding: 10px; font-weight: 500;">${asset.itemName}</td>
+                            <td style="padding: 10px; color: #64748b; font-size: 13px;">${asset.assignedDate}</td>
+                            <td style="padding: 10px; color: #22c55e; font-size: 13px;">${asset.returnedDate}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
         ` : ''}
     `;
     
