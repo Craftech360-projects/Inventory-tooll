@@ -2040,30 +2040,101 @@ body {
 
 .log-date-controls {
     display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 14px;
-    flex-wrap: wrap;
-}
-
-.log-date-controls label {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-secondary);
-}
-
-.log-date-controls input[type="date"] {
-    min-width: 180px;
-    padding: 8px 10px;
-    background: var(--bg-input);
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding: 14px 16px;
     border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius);
+    background: linear-gradient(180deg, rgba(99, 102, 241, 0.08), rgba(30, 41, 59, 0.9));
+}
+
+.log-date-head {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.log-date-title {
+    font-size: 15px;
+    font-weight: 700;
     color: var(--text-primary);
 }
 
-.btn-log-date {
-    padding: 8px 12px;
+.log-date-help {
     font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.35;
+}
+
+.log-date-actions {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.log-date-input-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 220px;
+}
+
+.log-date-input-wrap label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+.log-date-controls input[type="date"] {
+    min-width: 220px;
+    height: 44px;
+    padding: 10px 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.log-date-controls input[type="date"]:focus {
+    outline: none;
+    border-color: var(--primary-light);
+    box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.2);
+}
+
+.btn-log-date {
+    height: 44px;
+    min-width: 108px;
+    padding: 0 16px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-log-date-today {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: rgba(59, 130, 246, 0.45);
+    color: #93c5fd;
+}
+
+.btn-log-date-today:hover {
+    background: rgba(59, 130, 246, 0.28);
+}
+
+.btn-log-date-all {
+    background: var(--bg-card);
+    color: var(--text-primary);
+}
+
+.btn-log-date-all:hover {
+    background: var(--bg-hover);
 }
 
 .log-selected-day {
@@ -2451,6 +2522,20 @@ body {
     .log-date-controls input[type="date"] {
         min-width: 0;
         width: 100%;
+    }
+
+    .log-date-actions {
+        width: 100%;
+    }
+
+    .log-date-input-wrap {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .btn-log-date {
+        flex: 1;
+        min-width: 120px;
     }
 }
 

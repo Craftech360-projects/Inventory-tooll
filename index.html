@@ -566,10 +566,18 @@
                 
                 <!-- Log Filters -->
                 <div class="log-date-controls">
-                    <label for="dailyLogDateFilter">Day</label>
-                    <input type="date" id="dailyLogDateFilter" onchange="setDailyLogDate(this.value)">
-                    <button type="button" class="btn-secondary btn-log-date" onclick="setDailyLogToToday()">Today</button>
-                    <button type="button" class="btn-secondary btn-log-date" onclick="clearDailyLogDate()">All Days</button>
+                    <div class="log-date-head">
+                        <span class="log-date-title">Filter By Day</span>
+                        <span class="log-date-help">Choose a date to view only that day's checkout logs.</span>
+                    </div>
+                    <div class="log-date-actions">
+                        <div class="log-date-input-wrap">
+                            <label for="dailyLogDateFilter">Day</label>
+                            <input type="date" id="dailyLogDateFilter" onchange="setDailyLogDate(this.value)">
+                        </div>
+                        <button type="button" class="btn-log-date btn-log-date-today" onclick="setDailyLogToToday()">Today</button>
+                        <button type="button" class="btn-log-date btn-log-date-all" onclick="clearDailyLogDate()">All Days</button>
+                    </div>
                 </div>
                 <div class="log-filters">
                     <button class="log-filter-btn active" data-filter="all" onclick="filterDailyLog('all')">All</button>
