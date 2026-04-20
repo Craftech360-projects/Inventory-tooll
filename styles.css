@@ -2085,7 +2085,8 @@ body {
     flex-direction: column;
     gap: 6px;
     min-width: 260px;
-    flex: 1 1 300px;
+    width: 280px;
+    flex: 0 0 auto;
 }
 
 .log-date-input-wrap label {
@@ -2099,7 +2100,8 @@ body {
 .log-date-controls #dailyLogDateFilter,
 .log-date-controls input[type="date"],
 .log-date-controls .flatpickr-input {
-    width: 100%;
+    width: 280px;
+    max-width: 100%;
     min-height: 52px;
     padding: 12px 14px;
     background: var(--bg-input);
