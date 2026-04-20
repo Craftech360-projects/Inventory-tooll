@@ -860,7 +860,7 @@ async function loadDCData() {
             createdDate: row[20] || '',
             fromAddress: row[21] || '',
             toAddress: row[22] || ''
-        })).filter(row => row.dcNumber);
+        })).filter(row => row.dcNumber && (row.status || '').toLowerCase() !== 'deleted');
 
         filteredDCs = [...dcData];
         updateDCList();
@@ -1414,12 +1414,31 @@ async function deleteDC(dcNumber) {
     try {
         showToast('Deleting DC...', 'success');
         
-        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=deleteDC', {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dcNumber: dcNumber, rowIndex: dc.rowIndex })
-        });
+        let hardDeleteError = null;
+        try {
+            const deleteRes = await fetch('/.netlify/functions/delete-delivery-channel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dcNumber: dcNumber, rowIndex: dc.rowIndex })
+            });
+            const deletePayload = await deleteRes.json().catch(() => ({}));
+            if (!deleteRes.ok || deletePayload.success !== true) {
+                hardDeleteError = new Error(deletePayload.error || 'Unable to delete DC');
+            }
+        } catch (hardDeleteEx) {
+            hardDeleteError = hardDeleteEx;
+        }
+
+        if (hardDeleteError) {
+            // Fallback for environments without Google service-account credentials:
+            // mark as Deleted using existing Apps Script status endpoint.
+            await fetch(CONFIG.APPS_SCRIPT_URL + '?action=updateDCStatus', {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dcNumber: dcNumber, status: 'Deleted' })
+            });
+        }
 
         // no-cors hides errors, so verify by reloading DC list.
         let removed = false;
@@ -4330,12 +4349,31 @@ async function deleteDC(dcNumber) {
     try {
         showToast('Deleting DC...', 'success');
         
-        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=deleteDC', {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dcNumber: dcNumber, rowIndex: dc.rowIndex })
-        });
+        let hardDeleteError = null;
+        try {
+            const deleteRes = await fetch('/.netlify/functions/delete-delivery-channel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dcNumber: dcNumber, rowIndex: dc.rowIndex })
+            });
+            const deletePayload = await deleteRes.json().catch(() => ({}));
+            if (!deleteRes.ok || deletePayload.success !== true) {
+                hardDeleteError = new Error(deletePayload.error || 'Unable to delete DC');
+            }
+        } catch (hardDeleteEx) {
+            hardDeleteError = hardDeleteEx;
+        }
+
+        if (hardDeleteError) {
+            // Fallback for environments without Google service-account credentials:
+            // mark as Deleted using existing Apps Script status endpoint.
+            await fetch(CONFIG.APPS_SCRIPT_URL + '?action=updateDCStatus', {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dcNumber: dcNumber, status: 'Deleted' })
+            });
+        }
 
         // no-cors hides errors, so verify by reloading DC list.
         let removed = false;
