@@ -4,6 +4,8 @@ const CONFIG = {
     SHEET_ID: '1MrwDU0XtemyfpwWNX551ulfUIAFECB4cLCPhNJH1yuo',
     // Using Netlify function to proxy CSV (avoids CORS issues)
     CSV_URL: '/.netlify/functions/get-inventory',
+    // Direct read fallback if Netlify function is unavailable/cold
+    READ_APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxGpuUe8AkkQCrO9zB4uolgX2smc_Ih66k8VXrlWdB3794D5YuYckhaAoTq6TcozOHT/exec',
     // Google Apps Script for write operations (deployed from the spreadsheet)
     APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxh4EkJYjC1EjI7rrbMcza1_XPs5WOp5_7RQlJlro-QZhVl5P41fxQVIAOyT-wrprlf/exec'
 };
@@ -19,13 +21,13 @@ const CATEGORY_PREFIXES = {
 };
 
 const CATEGORY_ICONS = {
-    'IT Assets': '💻',
-    'Electronics': '🔌',
-    'Event Equipment': '🎪',
-    'Mechanical Division': '⚙️',
-    'Office Assets': '🪑',
-    'Dead Stock': '📦',
-    'Rented Equipment': '🔄'
+    'IT Assets': '\u{1F4BB}',
+    'Electronics': '\u{1F50C}',
+    'Event Equipment': '\u{1F3AA}',
+    'Mechanical Division': '\u2699\uFE0F',
+    'Office Assets': '\u{1FA91}',
+    'Dead Stock': '\u{1F4E6}',
+    'Rented Equipment': '\u{1F504}'
 };
 
 const CATEGORY_COLORS = {
@@ -109,10 +111,11 @@ const SUB_CATEGORIES = {
 
 let inventoryData = [];
 let filteredData = [];
+let isInventoryLoading = false;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('🚀 App initialized');
+    console.log('App initialized');
     setupNavigation();
     loadData();
     
@@ -205,88 +208,168 @@ function parseCSV(csv) {
     return result;
 }
 
-// Load Data from Google Sheets (via CSV export)
-async function loadData() {
-    console.log('🔄 Loading data from:', CONFIG.CSV_URL);
-    
-    try {
-        // Add cache-busting parameter
-        const cacheBuster = Date.now();
-        const response = await fetch(CONFIG.CSV_URL + '?_=' + cacheBuster, {
-            cache: 'no-store'
+// Utility helpers for resilient initial data load
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function normalizeRow(rawRow) {
+    return Array.isArray(rawRow) ? rawRow : [];
+}
+
+function hasInventoryHeader(row) {
+    const firstCell = String(row?.[0] || '').toLowerCase().trim();
+    const secondCell = String(row?.[1] || '').toLowerCase().trim();
+    return firstCell.includes('item id') || secondCell.includes('item name');
+}
+
+function mapRowsToInventoryItems(rows) {
+    if (!Array.isArray(rows) || rows.length === 0) return [];
+
+    const startIndex = hasInventoryHeader(rows[0]) ? 1 : 0;
+    const items = [];
+
+    for (let i = startIndex; i < rows.length; i++) {
+        const row = normalizeRow(rows[i]);
+        const itemId = String(row[0] || '').trim();
+
+        if (!itemId) continue;
+
+        items.push({
+            rowIndex: i + 1,
+            itemId,
+            name: row[1] || '',
+            category: row[2] || '',
+            subCategory: row[3] || '',
+            quantity: parseInt(row[4], 10) || 0,
+            status: row[5] || 'Available',
+            location: row[6] || '',
+            value: parseInt(row[7], 10) || 0,
+            addedDate: row[8] || '',
+            notes: row[9] || '',
+            returnDate: row[10] || '',
+            eventProject: row[11] || '',
+            vendorName: row[12] || '',
+            vendorContact: row[13] || '',
+            rentalCost: parseInt(row[14], 10) || 0,
+            deposit: parseInt(row[15], 10) || 0
         });
-        
-        if (!response.ok) {
-            throw new Error('HTTP error! status: ' + response.status);
-        }
-        
-        const csvText = await response.text();
-        console.log('📥 Received', csvText.length, 'bytes of CSV data');
-        
-        if (!csvText || csvText.length < 50) {
-            throw new Error('Empty or invalid CSV response');
-        }
-        
-        const data = parseCSV(csvText);
-        console.log('📊 Parsed', data.length, 'total rows');
-        
-        if (!data || data.length < 2) {
-            throw new Error('No data rows found (only ' + (data?.length || 0) + ' rows)');
-        }
-        
-        // Skip header row and map to objects
-        const items = [];
-        for (let i = 1; i < data.length; i++) {
-            const row = data[i];
-            if (row && row[0] && row[0].trim()) {  // Must have Item ID
-                items.push({
-                    rowIndex: i + 1,
-                    itemId: row[0] || '',
-                    name: row[1] || '',
-                    category: row[2] || '',
-                    subCategory: row[3] || '',
-                    quantity: parseInt(row[4]) || 0,
-                    status: row[5] || 'Available',
-                    location: row[6] || '',
-                    value: parseInt(row[7]) || 0,
-                    addedDate: row[8] || '',
-                    notes: row[9] || '',
-                    returnDate: row[10] || '',
-                    eventProject: row[11] || '',
-                    vendorName: row[12] || '',
-                    vendorContact: row[13] || '',
-                    rentalCost: parseInt(row[14]) || 0,
-                    deposit: parseInt(row[15]) || 0
-                });
+    }
+
+    return items;
+}
+
+async function fetchCsvRowsWithRetry(maxAttempts = 2) {
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            const cacheBuster = Date.now();
+            const response = await fetch(CONFIG.CSV_URL + '?_=' + cacheBuster, { cache: 'no-store' });
+
+            if (!response.ok) {
+                throw new Error('HTTP ' + response.status);
+            }
+
+            const csvText = await response.text();
+            if (!csvText || csvText.trim().length < 10) {
+                throw new Error('Empty CSV response');
+            }
+
+            const rows = parseCSV(csvText);
+            if (!rows.length) {
+                throw new Error('No rows in CSV');
+            }
+
+            return rows;
+        } catch (error) {
+            lastError = error;
+            if (attempt < maxAttempts) {
+                await sleep(1000 * attempt);
             }
         }
-        
-        console.log('✅ Mapped', items.length, 'valid inventory items');
-        
-        if (items.length === 0) {
-            throw new Error('No valid items found after parsing');
+    }
+
+    throw lastError || new Error('CSV fetch failed');
+}
+
+async function fetchAppsScriptRows() {
+    const readUrls = [CONFIG.APPS_SCRIPT_URL, CONFIG.READ_APPS_SCRIPT_URL];
+    let lastError = null;
+
+    for (const baseUrl of readUrls) {
+        try {
+            const separator = baseUrl.includes('?') ? '&' : '?';
+            const url = `${baseUrl}${separator}action=getInventory&_=${Date.now()}`;
+            const response = await fetch(url, { cache: 'no-store' });
+
+            if (!response.ok) {
+                throw new Error('HTTP ' + response.status);
+            }
+
+            const data = await response.json();
+            if (!Array.isArray(data) || data.length === 0) {
+                throw new Error('Apps Script returned empty data');
+            }
+
+            return data;
+        } catch (error) {
+            lastError = error;
         }
-        
-        // Update global state
+    }
+
+    throw lastError || new Error('Apps Script fallback failed');
+}
+
+// Load Data from Google Sheets
+async function loadData() {
+    if (isInventoryLoading) return;
+    isInventoryLoading = true;
+
+    console.log('Loading inventory data...');
+
+    try {
+        let rows = [];
+        let source = 'netlify-function';
+
+        try {
+            rows = await fetchCsvRowsWithRetry(2);
+        } catch (csvError) {
+            console.warn('Primary CSV load failed, using Apps Script fallback:', csvError.message);
+            rows = await fetchAppsScriptRows();
+            source = 'apps-script-fallback';
+        }
+
+        const items = mapRowsToInventoryItems(rows);
+        console.log('Loaded', items.length, 'items from', source);
+
+        if (items.length === 0) {
+            throw new Error('No valid items found in data source');
+        }
+
         inventoryData = items;
         filteredData = [...inventoryData];
-        
-        // Update UI
+
         updateDashboard();
         updateInventoryTable();
         updateCategoriesView();
-        
-        // Update sync time
+
         const lastSyncEl = document.getElementById('lastSync');
         if (lastSyncEl) {
-            lastSyncEl.textContent = new Date().toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+            lastSyncEl.textContent = new Date().toLocaleString('en-IN', {
+                day: '2-digit',
+                month: 'short',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
         }
-        
+
         showToast('Data synced! ' + inventoryData.length + ' items loaded.', 'success');
-        
     } catch (error) {
-        console.error('❌ Error loading data:', error.message);
+        console.error('Error loading data:', error.message);
         showToast('Failed to load: ' + error.message, 'error');
+    } finally {
+        isInventoryLoading = false;
     }
 }
 
@@ -301,7 +384,7 @@ function updateDashboard() {
     document.getElementById('totalItems').textContent = totalItems;
     document.getElementById('availableItems').textContent = availableItems;
     document.getElementById('inUseItems').textContent = inUseItems;
-    document.getElementById('totalValue').textContent = '₹' + totalValue.toLocaleString('en-IN');
+    document.getElementById('totalValue').textContent = '\u20B9' + totalValue.toLocaleString('en-IN');
     
     // Category Chart
     const categoryChart = document.getElementById('categoryChart');
@@ -388,7 +471,7 @@ function updateInventoryTable() {
         <tr>
             <td><code>${item.itemId}</code></td>
             <td>${item.name}</td>
-            <td>${CATEGORY_ICONS[item.category] || '📦'} ${item.category}</td>
+            <td>${CATEGORY_ICONS[item.category] || '\u{1F4E6}'} ${item.category}</td>
             <td>${item.quantity}</td>
             <td><span class="status-badge status-${item.status.toLowerCase().replace(' ', '-')}">${item.status}</span></td>
             <td>${item.location || '-'}</td>
@@ -703,6 +786,30 @@ document.getElementById('editModal').addEventListener('click', (e) => {
 let dcData = [];
 let filteredDCs = [];
 let selectedDCItems = [];
+let isOpeningDCEdit = false;
+let cachedPreparedLogoDataUrl = null;
+
+function updateCreateDCBackButton() {
+    const form = document.getElementById('createDCForm');
+    const backBtn = document.getElementById('createDCEditBackBtn');
+    if (!form || !backBtn) return;
+
+    const returnDcNumber = form.dataset.returnToDC || form.dataset.editingDC || '';
+    const isEditing = !!form.dataset.editingDC;
+    backBtn.style.display = isEditing && returnDcNumber ? 'inline-flex' : 'none';
+}
+
+function goBackFromCreateDCEdit() {
+    const form = document.getElementById('createDCForm');
+    const returnDcNumber = form?.dataset.returnToDC || form?.dataset.editingDC;
+
+    if (returnDcNumber) {
+        viewDCDetail(returnDcNumber);
+        return;
+    }
+
+    switchView('deliveryChannels');
+}
 
 // DC Status labels
 const DC_STATUS_LABELS = {
@@ -782,9 +889,12 @@ function updateDCList() {
     container.innerHTML = filteredDCs.map(dc => `
         <div class="dc-card" onclick="viewDCDetail('${dc.dcNumber}')">
             <div class="dc-card-header">
-                <div>
-                    <div class="dc-card-title">${dc.eventName}</div>
-                    <div class="dc-card-number">${dc.dcNumber} • ${dc.activity}</div>
+                <div class="dc-card-heading">
+                    <div class="dc-card-title">${dc.eventName || '-'}</div>
+                    <div class="dc-card-number-line">
+                        <span class="dc-card-number">${dc.dcNumber || '-'}</span>
+                        <span class="dc-card-activity">${dc.activity || 'General'}</span>
+                    </div>
                 </div>
                 <span class="dc-card-status dc-status-${dc.status.toLowerCase().replace(' ', '')}">${DC_STATUS_LABELS[dc.status] || dc.status}</span>
             </div>
@@ -841,7 +951,9 @@ function populateAvailableItems() {
     if (!container) return;
     
     const availableItems = inventoryData.filter(item => 
-        item.status === 'Available' && item.category !== 'Dead Stock'
+        item.status === 'Available' &&
+        item.category !== 'Dead Stock' &&
+        (parseInt(item.quantity, 10) || 0) > 0
     );
     
     container.innerHTML = availableItems.map(item => `
@@ -867,6 +979,7 @@ function filterAvailableItems() {
     const availableItems = inventoryData.filter(item => 
         item.status === 'Available' && 
         item.category !== 'Dead Stock' &&
+        (parseInt(item.quantity, 10) || 0) > 0 &&
         (!search || item.name.toLowerCase().includes(search) || item.itemId.toLowerCase().includes(search))
     );
     
@@ -896,7 +1009,13 @@ function toggleItemSelection(itemId) {
     
     const existingIndex = selectedDCItems.findIndex(s => s.itemId === itemId);
     const qtyInput = document.getElementById(`qty-${itemId}`);
-    const qty = parseInt(qtyInput?.value) || 1;
+    const maxQty = parseInt(item.quantity, 10) || 0;
+    const qty = Math.min(Math.max(1, parseInt(qtyInput?.value, 10) || 1), maxQty);
+
+    if (maxQty < 1) {
+        showToast('This item has no dispatchable quantity.', 'error');
+        return;
+    }
     
     if (existingIndex >= 0) {
         selectedDCItems.splice(existingIndex, 1);
@@ -906,7 +1025,7 @@ function toggleItemSelection(itemId) {
             name: item.name,
             category: item.category,
             qty: qty,
-            maxQty: item.quantity
+            maxQty: maxQty
         });
     }
     
@@ -918,7 +1037,7 @@ function toggleItemSelection(itemId) {
 function updateItemQty(itemId, qty) {
     const item = selectedDCItems.find(s => s.itemId === itemId);
     if (item) {
-        item.qty = Math.min(parseInt(qty) || 1, item.maxQty);
+        item.qty = Math.min(Math.max(1, parseInt(qty, 10) || 1), item.maxQty);
     }
     updateSelectedItemsList();
 }
@@ -1019,12 +1138,14 @@ async function createDC(e) {
         form.reset();
         delete form.dataset.editingDC;
         delete form.dataset.rowIndex;
+        delete form.dataset.returnToDC;
         selectedDCItems = [];
         updateSelectedItemsList();
+        updateCreateDCBackButton();
         
         // Reset button text
         const submitBtn = form.querySelector('button[type="submit"]');
-        if (submitBtn) submitBtn.textContent = '📦 Create DC';
+        if (submitBtn) submitBtn.textContent = 'Create DC (Draft)';
         
         // Reload and switch view
         setTimeout(async () => {
@@ -1075,9 +1196,12 @@ function viewDCDetail(dcNumber) {
     
     container.innerHTML = `
         <div class="dc-detail-header">
-            <div>
+            <div class="dc-detail-title-block">
                 <h2>${dc.eventName}</h2>
-                <p style="color: var(--text-muted);">${dc.dcNumber} • ${dc.activity}</p>
+                <div class="dc-detail-meta">
+                    <span class="dc-detail-chip dc-detail-chip-number">${dc.dcNumber || '-'}</span>
+                    <span class="dc-detail-chip">${dc.activity || 'General'}</span>
+                </div>
             </div>
             <div class="dc-detail-actions">
                 ${checkOutBtn}
@@ -1087,7 +1211,6 @@ function viewDCDetail(dcNumber) {
                 <button class="btn-pdf-download" onclick="downloadPDF('${dcNumber}')">
                     <span>📄</span> Download PDF
                 </button>
-                <button class="btn-back" onclick="switchView('deliveryChannels')">← Back</button>
             </div>
         </div>
         
@@ -1218,7 +1341,9 @@ async function editDC(dcNumber) {
     if (!dc) return;
     
     // Switch to create DC view and populate form
+    isOpeningDCEdit = true;
     switchView('createDC');
+    isOpeningDCEdit = false;
     
     // Populate form fields
     document.getElementById('dcEventName').value = dc.eventName || '';
@@ -1240,12 +1365,15 @@ async function editDC(dcNumber) {
     document.getElementById('dcToAddress').value = dc.toAddress || '';
     
     // Store the DC number for update
-    document.getElementById('createDCForm').dataset.editingDC = dcNumber;
-    document.getElementById('createDCForm').dataset.rowIndex = dc.rowIndex;
+    const createDCForm = document.getElementById('createDCForm');
+    createDCForm.dataset.editingDC = dcNumber;
+    createDCForm.dataset.rowIndex = dc.rowIndex;
+    createDCForm.dataset.returnToDC = dcNumber;
+    updateCreateDCBackButton();
     
     // Change button text
     const submitBtn = document.querySelector('#createDCForm button[type="submit"]');
-    if (submitBtn) submitBtn.textContent = '💾 Update DC';
+    if (submitBtn) submitBtn.textContent = 'Update DC';
     
     // Load existing DC items
     try {
@@ -1452,6 +1580,94 @@ _CFT Inventory System_`;
     window.open(url, '_blank');
 }
 
+async function getPreparedLogoDataUrl() {
+    if (cachedPreparedLogoDataUrl) return cachedPreparedLogoDataUrl;
+
+    const rawLogo = (typeof CRAFTECH_LOGO_BASE64 !== 'undefined') ? CRAFTECH_LOGO_BASE64 : '';
+    if (!rawLogo) return '';
+
+    cachedPreparedLogoDataUrl = await new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            try {
+                const srcCanvas = document.createElement('canvas');
+                srcCanvas.width = img.naturalWidth || img.width;
+                srcCanvas.height = img.naturalHeight || img.height;
+                const srcCtx = srcCanvas.getContext('2d');
+                srcCtx.drawImage(img, 0, 0);
+
+                const { width, height } = srcCanvas;
+                const pixels = srcCtx.getImageData(0, 0, width, height).data;
+
+                let minX = width;
+                let minY = height;
+                let maxX = -1;
+                let maxY = -1;
+
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        const i = (y * width + x) * 4;
+                        const r = pixels[i];
+                        const g = pixels[i + 1];
+                        const b = pixels[i + 2];
+                        const a = pixels[i + 3];
+
+                        // Keep meaningful pixels (non-transparent and not near-white background).
+                        const meaningful = a > 12 && !(r > 248 && g > 248 && b > 248);
+                        if (!meaningful) continue;
+
+                        if (x < minX) minX = x;
+                        if (y < minY) minY = y;
+                        if (x > maxX) maxX = x;
+                        if (y > maxY) maxY = y;
+                    }
+                }
+
+                if (maxX < minX || maxY < minY) {
+                    resolve(rawLogo);
+                    return;
+                }
+
+                const pad = 8;
+                minX = Math.max(0, minX - pad);
+                minY = Math.max(0, minY - pad);
+                maxX = Math.min(width - 1, maxX + pad);
+                maxY = Math.min(height - 1, maxY + pad);
+
+                const cropW = maxX - minX + 1;
+                const cropH = maxY - minY + 1;
+                if (cropW <= 0 || cropH <= 0) {
+                    resolve(rawLogo);
+                    return;
+                }
+
+                const outCanvas = document.createElement('canvas');
+                outCanvas.width = cropW;
+                outCanvas.height = cropH;
+                const outCtx = outCanvas.getContext('2d');
+                outCtx.drawImage(srcCanvas, minX, minY, cropW, cropH, 0, 0, cropW, cropH);
+                resolve(outCanvas.toDataURL('image/png'));
+            } catch (err) {
+                console.error('Logo prep failed, using raw logo:', err);
+                resolve(rawLogo);
+            }
+        };
+        img.onerror = () => resolve(rawLogo);
+        img.src = rawLogo;
+    });
+
+    return cachedPreparedLogoDataUrl;
+}
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 // PDF Download
 async function downloadPDF(dcNumber) {
     const dc = dcData.find(d => d.dcNumber === dcNumber);
@@ -1486,10 +1702,10 @@ async function downloadPDF(dcNumber) {
                 const description = invItem.notes || item[3] || '-';
                 return `
                 <tr>
-                    <td>${item[1]}</td>
-                    <td>${item[2]}</td>
-                    <td style="font-size:9px;">${description}</td>
-                    <td style="text-align:center;">${item[4]}</td>
+                    <td>${escapeHtml(item[1])}</td>
+                    <td>${escapeHtml(item[2])}</td>
+                    <td style="font-size:9px;">${escapeHtml(description)}</td>
+                    <td style="text-align:center;">${escapeHtml(item[4])}</td>
                     <td style="text-align:center;"><div class="checkbox"></div></td>
                     <td style="text-align:center;"><div class="checkbox"></div></td>
                     <td style="min-height:40px;"></td>
@@ -1505,64 +1721,75 @@ async function downloadPDF(dcNumber) {
     const brandDark = '#1A1A1A';
     const brandLight = '#FFF8E7';
     
-    // Create printable content - Clean tabular layout
+    const logoSrc = await getPreparedLogoDataUrl();
+    const pdfFields = {
+        dcNumber: escapeHtml(dc.dcNumber || '-'),
+        createdDate: escapeHtml(dc.createdDate || new Date().toISOString().split('T')[0]),
+        eventName: escapeHtml(dc.eventName || '-'),
+        activity: escapeHtml(dc.activity || '-'),
+        eventDate: escapeHtml(dc.eventDate || '-'),
+        clientName: escapeHtml(dc.clientName || '-'),
+        eventLocation: escapeHtml(dc.eventLocation || '-'),
+        clientPOC: escapeHtml(dc.clientPOC || '-'),
+        clientPhone: escapeHtml(dc.clientPhone || ''),
+        sitePOC: escapeHtml(dc.sitePOC || '-'),
+        sitePhone: escapeHtml(dc.sitePhone || ''),
+        dispatchDate: escapeHtml(dc.dispatchDate || '-'),
+        fromAddress: escapeHtml(dc.fromAddress || 'CFT360 Design Studio Pvt Ltd\nBengaluru, Karnataka'),
+        toAddress: escapeHtml(dc.toAddress || dc.eventLocation || '-'),
+        expectedReturn: escapeHtml(dc.expectedReturn || '-'),
+        carrierName: escapeHtml(dc.carrierName || '-'),
+        vehicleNumber: escapeHtml(dc.vehicleNumber || ''),
+        pmApprover: escapeHtml(dc.pmApprover || '-'),
+        notes: escapeHtml(dc.notes || '')
+    };
+
+    // Create printable content - Clean tabular layout (scoped styles to avoid UI flicker).
     const printContent = `
-        <html>
-        <head>
-            <title>Delivery Challan - ${dc.dcNumber}</title>
-            <style>
-                * { margin: 0; padding: 0; box-sizing: border-box; }
-                body { font-family: 'Segoe UI', Arial, sans-serif; padding: 15px; font-size: 11px; color: #333; }
-                .container { max-width: 800px; margin: 0 auto; }
-                
-                /* Header */
-                .header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 10px; border-bottom: 2px solid ${brandOrange}; margin-bottom: 12px; }
-                .company-info { display: flex; align-items: center; gap: 12px; }
-                .company-logo { width: 70px; height: 70px; flex-shrink: 0; }
-                .company-logo img { width: 100%; height: auto; }
-                .company-text { }
-                .company-name { font-size: 16px; font-weight: bold; color: #000; }
-                .company-details { font-size: 9px; color: #666; line-height: 1.4; margin-top: 4px; }
-                .doc-info { text-align: right; }
-                .doc-title { font-size: 18px; font-weight: bold; color: ${brandOrange}; }
-                .doc-number { font-size: 14px; font-weight: 600; margin-top: 4px; }
-                .doc-date { font-size: 11px; color: #666; }
-                
-                /* Section Title */
-                .section-title { font-size: 11px; font-weight: bold; color: ${brandOrange}; margin: 12px 0 6px 0; text-transform: uppercase; }
-                
-                /* Info Table */
-                .info-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
-                .info-table td { padding: 6px 10px; border: 1px solid #ddd; vertical-align: top; }
-                .info-table .label { font-size: 9px; color: #888; text-transform: uppercase; }
-                .info-table .value { font-size: 11px; font-weight: 500; color: #000; margin-top: 2px; }
-                
-                /* Items Table */
-                .items-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
-                .items-table th { background: ${brandOrange}; color: white; padding: 8px 6px; text-align: left; font-size: 9px; text-transform: uppercase; border: 1px solid ${brandOrange}; }
-                .items-table td { padding: 8px 6px; border: 1px solid #ddd; vertical-align: middle; font-size: 10px; }
-                .items-table tr:nth-child(even) { background: #fafafa; }
-                .checkbox { width: 16px; height: 16px; border: 1.5px solid #333; display: inline-block; }
-                
-                /* Signatures */
-                .signature-section { display: flex; margin-top: 20px; border-top: 1px solid #ddd; padding-top: 15px; }
-                .signature-box { flex: 1; text-align: center; }
-                .signature-line { border-bottom: 1px solid #333; width: 140px; margin: 35px auto 8px; }
-                .signature-label { font-size: 10px; color: #666; }
-                
-                /* Footer */
-                .footer { margin-top: 15px; padding-top: 10px; border-top: 1px solid #ddd; font-size: 8px; color: #999; text-align: center; }
-                
-                @media print { body { padding: 10px; } }
-            </style>
-        </head>
-        <body>
+        <style>
+            .pdf-wrap * { margin: 0; padding: 0; box-sizing: border-box; }
+            .pdf-wrap { font-family: 'Segoe UI', Arial, sans-serif; padding: 14px 16px 14px 12px; font-size: 11px; color: #333; background: #fff; width: 100%; }
+            .pdf-wrap .container { max-width: 760px; margin: 0 auto; padding: 0 12px 0 6px; }
+            
+            .pdf-wrap .header { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding-right: 10px; padding-bottom: 10px; border-bottom: 2px solid ${brandOrange}; margin-bottom: 12px; }
+            .pdf-wrap .company-info { display: flex; align-items: center; gap: 12px; min-width: 0; }
+            .pdf-wrap .company-logo { width: 96px; height: 42px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+            .pdf-wrap .company-logo img { width: 100%; height: 100%; object-fit: contain; object-position: center center; display: block; }
+            .pdf-wrap .company-name { font-size: 16px; font-weight: bold; color: #000; white-space: nowrap; }
+            .pdf-wrap .company-details { font-size: 9px; color: #666; line-height: 1.4; margin-top: 4px; }
+            .pdf-wrap .doc-info { text-align: right; padding-right: 16px; min-width: 200px; flex-shrink: 0; }
+            .pdf-wrap .doc-title { font-size: 17px; font-weight: bold; color: ${brandOrange}; white-space: nowrap; }
+            .pdf-wrap .doc-number { font-size: 14px; font-weight: 600; margin-top: 4px; }
+            .pdf-wrap .doc-date { font-size: 11px; color: #666; }
+            
+            .pdf-wrap .section-title { font-size: 11px; font-weight: bold; color: ${brandOrange}; margin: 12px 0 6px 0; text-transform: uppercase; }
+            .pdf-wrap .info-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+            .pdf-wrap .info-table td { padding: 6px 10px; border: 1px solid #ddd; vertical-align: top; }
+            .pdf-wrap .info-table .label { font-size: 9px; color: #888; text-transform: uppercase; }
+            .pdf-wrap .info-table .value { font-size: 11px; font-weight: 500; color: #000; margin-top: 2px; }
+            
+            .pdf-wrap .items-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+            .pdf-wrap .items-table th { background: ${brandOrange}; color: white; padding: 8px 6px; text-align: left; font-size: 9px; text-transform: uppercase; border: 1px solid ${brandOrange}; }
+            .pdf-wrap .items-table td { padding: 8px 6px; border: 1px solid #ddd; vertical-align: middle; font-size: 10px; }
+            .pdf-wrap .items-table tr:nth-child(even) { background: #fafafa; }
+            .pdf-wrap .checkbox { width: 16px; height: 16px; border: 1.5px solid #333; display: inline-block; }
+            
+            .pdf-wrap .signature-section { display: flex; margin-top: 20px; border-top: 1px solid #ddd; padding-top: 15px; }
+            .pdf-wrap .signature-box { flex: 1; text-align: center; }
+            .pdf-wrap .signature-line { border-bottom: 1px solid #333; width: 140px; margin: 35px auto 8px; }
+            .pdf-wrap .signature-label { font-size: 10px; color: #666; }
+            
+            .pdf-wrap .footer { margin-top: 15px; padding-top: 10px; border-top: 1px solid #ddd; font-size: 8px; color: #999; text-align: center; }
+            .pdf-wrap .notes { margin-top: 10px; font-size: 10px; }
+            .pdf-wrap .end-block { page-break-inside: avoid; break-inside: avoid-page; }
+            .pdf-wrap .signature-section { page-break-inside: avoid; break-inside: avoid; }
+        </style>
+        <div class="pdf-wrap">
             <div class="container">
-                <!-- Header: Logo + Company + DC# & Date -->
                 <div class="header">
                     <div class="company-info">
                         <div class="company-logo">
-                            <img src="${typeof CRAFTECH_LOGO_BASE64 !== 'undefined' ? CRAFTECH_LOGO_BASE64 : ''}" alt="Craftech360">
+                            <img src="${logoSrc}" alt="Craftech360">
                         </div>
                         <div class="company-text">
                             <div class="company-name">CFT360 Design Studio Pvt Ltd</div>
@@ -1574,50 +1801,46 @@ async function downloadPDF(dcNumber) {
                     </div>
                     <div class="doc-info">
                         <div class="doc-title">DELIVERY CHALLAN</div>
-                        <div class="doc-number">${dc.dcNumber}</div>
-                        <div class="doc-date">Date: ${dc.createdDate || new Date().toISOString().split('T')[0]}</div>
+                        <div class="doc-number">${pdfFields.dcNumber}</div>
+                        <div class="doc-date">Date: ${pdfFields.createdDate}</div>
                     </div>
                 </div>
                 
-                <!-- Event Details Table -->
                 <div class="section-title">Event Details</div>
                 <table class="info-table">
                     <tr>
-                        <td style="width:25%"><div class="label">Event Name</div><div class="value">${dc.eventName}</div></td>
-                        <td style="width:25%"><div class="label">Activity</div><div class="value">${dc.activity}</div></td>
-                        <td style="width:25%"><div class="label">Event Date</div><div class="value">${dc.eventDate}</div></td>
-                        <td style="width:25%"><div class="label">Client</div><div class="value">${dc.clientName}</div></td>
+                        <td style="width:25%"><div class="label">Event Name</div><div class="value">${pdfFields.eventName}</div></td>
+                        <td style="width:25%"><div class="label">Activity</div><div class="value">${pdfFields.activity}</div></td>
+                        <td style="width:25%"><div class="label">Event Date</div><div class="value">${pdfFields.eventDate}</div></td>
+                        <td style="width:25%"><div class="label">Client</div><div class="value">${pdfFields.clientName}</div></td>
                     </tr>
                     <tr>
-                        <td><div class="label">Location</div><div class="value">${dc.eventLocation || '-'}</div></td>
-                        <td><div class="label">Client POC</div><div class="value">${dc.clientPOC || '-'} ${dc.clientPhone ? '<br>' + dc.clientPhone : ''}</div></td>
-                        <td><div class="label">Site POC</div><div class="value">${dc.sitePOC || '-'} ${dc.sitePhone ? '<br>' + dc.sitePhone : ''}</div></td>
-                        <td><div class="label">Setup Date</div><div class="value">${dc.dispatchDate || '-'}</div></td>
+                        <td><div class="label">Location</div><div class="value">${pdfFields.eventLocation}</div></td>
+                        <td><div class="label">Client POC</div><div class="value">${pdfFields.clientPOC} ${dc.clientPhone ? '<br>' + pdfFields.clientPhone : ''}</div></td>
+                        <td><div class="label">Site POC</div><div class="value">${pdfFields.sitePOC} ${dc.sitePhone ? '<br>' + pdfFields.sitePhone : ''}</div></td>
+                        <td><div class="label">Setup Date</div><div class="value">${pdfFields.dispatchDate}</div></td>
                     </tr>
                 </table>
                 
-                <!-- Shipping Addresses -->
                 <div class="section-title">Shipping</div>
                 <table class="info-table">
                     <tr>
-                        <td style="width:50%"><div class="label">Ship From</div><div class="value" style="white-space:pre-line;">${dc.fromAddress || 'CFT360 Design Studio Pvt Ltd\nBengaluru, Karnataka'}</div></td>
-                        <td style="width:50%"><div class="label">Ship To</div><div class="value" style="white-space:pre-line;">${dc.toAddress || dc.eventLocation || '-'}</div></td>
+                        <td style="width:50%"><div class="label">Ship From</div><div class="value" style="white-space:pre-line;">${pdfFields.fromAddress}</div></td>
+                        <td style="width:50%"><div class="label">Ship To</div><div class="value" style="white-space:pre-line;">${pdfFields.toAddress}</div></td>
                     </tr>
                 </table>
                 
-                <!-- Logistics Details Table -->
                 <div class="section-title">Logistics & Approvals</div>
                 <table class="info-table">
                     <tr>
-                        <td style="width:20%"><div class="label">Dispatch Date</div><div class="value">${dc.dispatchDate || '-'}</div></td>
-                        <td style="width:20%"><div class="label">Expected Return</div><div class="value">${dc.expectedReturn || '-'}</div></td>
-                        <td style="width:20%"><div class="label">Carrier / Vehicle</div><div class="value">${dc.carrierName || '-'}<br>${dc.vehicleNumber || ''}</div></td>
-                        <td style="width:20%"><div class="label">Event Executor</div><div class="value">${dc.sitePOC || '-'}</div></td>
-                        <td style="width:20%"><div class="label">DC Approver</div><div class="value">${dc.pmApprover || '-'}</div></td>
+                        <td style="width:20%"><div class="label">Dispatch Date</div><div class="value">${pdfFields.dispatchDate}</div></td>
+                        <td style="width:20%"><div class="label">Expected Return</div><div class="value">${pdfFields.expectedReturn}</div></td>
+                        <td style="width:20%"><div class="label">Carrier / Vehicle</div><div class="value">${pdfFields.carrierName}<br>${pdfFields.vehicleNumber}</div></td>
+                        <td style="width:20%"><div class="label">Event Executor</div><div class="value">${pdfFields.sitePOC}</div></td>
+                        <td style="width:20%"><div class="label">DC Approver</div><div class="value">${pdfFields.pmApprover}</div></td>
                     </tr>
                 </table>
                 
-                <!-- Items Table -->
                 <div class="section-title">Items</div>
                 <table class="items-table">
                     <thead>
@@ -1636,51 +1859,54 @@ async function downloadPDF(dcNumber) {
                     </tbody>
                 </table>
                 
-                <!-- Notes -->
-                ${dc.notes ? `<div style="margin-top:10px;font-size:10px;"><strong>Notes:</strong> ${dc.notes}</div>` : ''}
-                
-                <!-- Signatures -->
-                <div class="signature-section">
-                    <div class="signature-box">
-                        <div class="signature-line"></div>
-                        <div class="signature-label">Dispatched By</div>
+                ${dc.notes ? `<div class="notes"><strong>Notes:</strong> ${pdfFields.notes}</div>` : ''}
+
+                <div class="end-block">
+                    <div class="signature-section">
+                        <div class="signature-box">
+                            <div class="signature-line"></div>
+                            <div class="signature-label">Dispatched By</div>
+                        </div>
+                        <div class="signature-box">
+                            <div class="signature-line"></div>
+                            <div class="signature-label">Received By</div>
+                        </div>
+                        <div class="signature-box">
+                            <div class="signature-line"></div>
+                            <div class="signature-label">Returned By</div>
+                        </div>
                     </div>
-                    <div class="signature-box">
-                        <div class="signature-line"></div>
-                        <div class="signature-label">Received By</div>
+                    
+                    <div class="footer">
+                        CFT360 Design Studio Pvt Ltd | www.craftech360.com | Generated: ${escapeHtml(new Date().toLocaleString())}
                     </div>
-                    <div class="signature-box">
-                        <div class="signature-line"></div>
-                        <div class="signature-label">Returned By</div>
-                    </div>
-                </div>
-                
-                <!-- Footer -->
-                <div class="footer">
-                    CFT360 Design Studio Pvt Ltd | www.craftech360.com | Generated: ${new Date().toLocaleString()}
                 </div>
             </div>
-        </body>
-        </html>
+        </div>
     `;
     
     // Create temporary container for PDF generation
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = printContent;
-    tempDiv.style.position = 'absolute';
-    tempDiv.style.left = '-9999px';
+    tempDiv.style.position = 'fixed';
+    tempDiv.style.left = '-10000px';
+    tempDiv.style.top = '0';
+    tempDiv.style.width = '900px';
+    tempDiv.style.opacity = '0';
+    tempDiv.style.pointerEvents = 'none';
     document.body.appendChild(tempDiv);
     
     // Generate and download PDF
     const opt = {
-        margin: 10,
+        margin: [10, 12, 10, 10],
         filename: `${dc.dcNumber}-${dc.eventName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+        pagebreak: { mode: ['css', 'legacy'], avoid: ['.end-block', '.signature-section', '.signature-box'] },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
     
-    html2pdf().set(opt).from(tempDiv.querySelector('.container') || tempDiv).save().then(() => {
+    html2pdf().set(opt).from(tempDiv.querySelector('.pdf-wrap') || tempDiv).save().then(() => {
         document.body.removeChild(tempDiv);
         showToast('✅ PDF downloaded!', 'success');
     }).catch(err => {
@@ -1950,6 +2176,25 @@ switchView = function(viewName) {
         dcDetail: 'DC Details'
     };
     document.getElementById('pageTitle').textContent = titles[viewName] || 'Dashboard';
+
+    const headerSubtitle = document.querySelector('.header-subtitle');
+    if (headerSubtitle) {
+        headerSubtitle.style.display = viewName === 'dcDetail' ? 'none' : 'block';
+    }
+    
+    const dcHeaderBackBtn = document.getElementById('dcHeaderBackBtn');
+    if (dcHeaderBackBtn) {
+        dcHeaderBackBtn.style.display = viewName === 'dcDetail' ? 'inline-flex' : 'none';
+    }
+
+    const createDCEditBackBtn = document.getElementById('createDCEditBackBtn');
+    if (createDCEditBackBtn) {
+        if (viewName === 'createDC') {
+            updateCreateDCBackButton();
+        } else {
+            createDCEditBackBtn.style.display = 'none';
+        }
+    }
 };
 
 // Load DC data on init
@@ -2634,6 +2879,26 @@ switchView = function(viewName) {
 
 let dailyLogData = [];
 let filteredLogData = [];
+let checkoutDraftItems = [];
+
+function mapDailyLogRows(rows) {
+    if (!Array.isArray(rows) || rows.length === 0) return [];
+    return rows.slice(1).filter(row => row[0]).map((row, index) => ({
+        rowIndex: index + 2,
+        logId: row[0] || '',
+        itemId: row[1] || '',
+        itemName: row[2] || '',
+        teamMember: row[3] || '',
+        purpose: row[4] || '',
+        requestDate: row[5] || '',
+        expectedReturn: row[6] || '',
+        status: row[7] || 'Requested',
+        handedOverBy: row[8] || '',
+        handoverDate: row[9] || '',
+        returnDate: row[10] || '',
+        notes: row[11] || ''
+    }));
+}
 
 // Load Daily Log Data
 async function loadDailyLogData() {
@@ -2643,28 +2908,22 @@ async function loadDailyLogData() {
             cache: 'no-store'
         });
         const csvText = await response.text();
-        const data = parseCSV(csvText);
-        
-        if (data && data.length > 0) {
-            dailyLogData = data.slice(1).filter(row => row[0]).map((row, index) => ({
-                rowIndex: index + 2,
-                logId: row[0] || '',
-                itemId: row[1] || '',
-                itemName: row[2] || '',
-                teamMember: row[3] || '',
-                purpose: row[4] || '',
-                requestDate: row[5] || '',
-                expectedReturn: row[6] || '',
-                status: row[7] || 'Requested',
-                handedOverBy: row[8] || '',
-                handoverDate: row[9] || '',
-                returnDate: row[10] || '',
-                notes: row[11] || ''
-            }));
-            
-            filteredLogData = [...dailyLogData];
-            updateDailyLogList();
+        let rows = parseCSV(csvText);
+
+        // Netlify CSV endpoint may return only header (invalid gid/no data). Fallback to Apps Script JSON.
+        if (!rows || rows.length <= 1) {
+            const fallback = await fetch(CONFIG.APPS_SCRIPT_URL + '?action=dailyLog&_=' + Date.now(), {
+                cache: 'no-store'
+            });
+            const jsonRows = await fallback.json();
+            if (Array.isArray(jsonRows) && jsonRows.length > 0) {
+                rows = jsonRows;
+            }
         }
+
+        dailyLogData = mapDailyLogRows(rows);
+        filteredLogData = [...dailyLogData];
+        updateDailyLogList();
     } catch (error) {
         console.error('Error loading daily log:', error);
         // If function doesn't exist yet, show empty state
@@ -2682,57 +2941,113 @@ function updateDailyLogList() {
     if (filteredLogData.length === 0) {
         container.innerHTML = `
             <div class="empty-state" style="text-align: center; padding: 60px; color: var(--text-muted);">
-                <div style="font-size: 48px; margin-bottom: 16px;">📋</div>
+                <div style="font-size: 22px; font-weight: 700; margin-bottom: 16px;">LOG</div>
                 <p>No checkout logs yet. Click "New Checkout" to get started!</p>
             </div>
         `;
         return;
     }
-    
-    container.innerHTML = filteredLogData.map(log => {
+
+    const today = new Date().toISOString().split('T')[0];
+    const checkedOutCount = filteredLogData.filter(log => log.status === 'Handed Over').length;
+    const returnedCount = filteredLogData.filter(log => log.status === 'Returned').length;
+    const pendingCount = filteredLogData.filter(log => log.status !== 'Returned').length;
+
+    const cardsHtml = filteredLogData.map(log => {
         const statusClass = log.status.toLowerCase().replace(/\s+/g, '');
-        const statusIcon = log.status === 'Requested' ? '📋' : log.status === 'Handed Over' ? '🤝' : '✅';
-        
+        const itemName = escapeHtml(log.itemName || '-');
+        const itemId = escapeHtml(log.itemId || '-');
+        const logId = escapeHtml(log.logId || '-');
+        const teamMember = escapeHtml(log.teamMember || '-');
+        const purpose = escapeHtml(log.purpose || '-');
+        const requestDate = escapeHtml(log.requestDate || '-');
+        const expectedReturn = log.expectedReturn || '';
+        const expectedReturnText = escapeHtml(expectedReturn || '-');
+        const returnDateText = escapeHtml(log.returnDate || '-');
+
+        let checkoutState = 'Pending Handover';
+        if (log.status === 'Handed Over') checkoutState = 'Checked Out';
+        if (log.status === 'Returned') checkoutState = 'Checked Out & Returned';
+
+        const overdue = log.status !== 'Returned' && expectedReturn && expectedReturn < today;
+        let returnStateLabel = 'Not Returned';
+        let returnStateClass = overdue ? 'overdue' : 'pending';
+        if (log.status === 'Returned') {
+            returnStateLabel = `Returned (${returnDateText})`;
+            returnStateClass = 'returned';
+        } else if (overdue) {
+            returnStateLabel = `Overdue since ${expectedReturnText}`;
+        } else if (expectedReturn) {
+            returnStateLabel = `Due on ${expectedReturnText}`;
+        }
+
         let actionBtn = '';
         if (log.status === 'Requested') {
-            actionBtn = `<button class="btn-handover" onclick="event.stopPropagation(); handoverItem('${log.logId}')">🤝 Hand Over</button>`;
+            actionBtn = `<button class="btn-handover" onclick="event.stopPropagation(); handoverItem('${log.logId}')">Hand Over</button>`;
         } else if (log.status === 'Handed Over') {
-            actionBtn = `<button class="btn-return" onclick="event.stopPropagation(); returnItem('${log.logId}')">✅ Mark Returned</button>`;
+            actionBtn = `<button class="btn-return" onclick="event.stopPropagation(); returnItem('${log.logId}')">Mark Returned</button>`;
         }
-        
+
         return `
             <div class="log-card" onclick="viewLogDetail('${log.logId}')">
                 <div class="log-card-header">
-                    <div>
-                        <div class="log-card-title">${log.itemName}</div>
-                        <div class="log-card-meta">${log.logId} • ${log.itemId}</div>
+                    <div class="log-card-head-main">
+                        <div class="log-card-title">${itemName}</div>
+                        <div class="log-card-meta">${logId} \u2022 ${itemId}</div>
                     </div>
-                    <span class="log-card-status log-status-${statusClass}">${statusIcon} ${log.status}</span>
+                    <span class="log-card-status log-status-${statusClass}">${escapeHtml(checkoutState)}</span>
                 </div>
+
                 <div class="log-card-details">
                     <div class="log-card-detail">
-                        <span class="log-card-detail-label">Team Member</span>
-                        <span class="log-card-detail-value">${log.teamMember}</span>
+                        <span class="log-card-detail-label">Assigned To</span>
+                        <span class="log-card-detail-value">${teamMember}</span>
                     </div>
                     <div class="log-card-detail">
                         <span class="log-card-detail-label">Purpose</span>
-                        <span class="log-card-detail-value">${log.purpose}</span>
-                    </div>
-                    <div class="log-card-detail">
-                        <span class="log-card-detail-label">Expected Return</span>
-                        <span class="log-card-detail-value">${log.expectedReturn}</span>
+                        <span class="log-card-detail-value">${purpose}</span>
                     </div>
                     <div class="log-card-detail">
                         <span class="log-card-detail-label">Request Date</span>
-                        <span class="log-card-detail-value">${log.requestDate}</span>
+                        <span class="log-card-detail-value">${requestDate}</span>
+                    </div>
+                    <div class="log-card-detail">
+                        <span class="log-card-detail-label">Expected Return</span>
+                        <span class="log-card-detail-value">${expectedReturnText}</span>
+                    </div>
+                    <div class="log-card-detail">
+                        <span class="log-card-detail-label">Return Status</span>
+                        <span class="log-return-state log-return-${returnStateClass}">${escapeHtml(returnStateLabel)}</span>
                     </div>
                 </div>
+
                 ${actionBtn ? `<div class="log-card-actions">${actionBtn}</div>` : ''}
             </div>
         `;
     }).join('');
-}
 
+    container.innerHTML = `
+        <div class="log-summary">
+            <div class="log-summary-item">
+                <span class="log-summary-label">Total Logs</span>
+                <span class="log-summary-value">${filteredLogData.length}</span>
+            </div>
+            <div class="log-summary-item">
+                <span class="log-summary-label">Checked Out</span>
+                <span class="log-summary-value">${checkedOutCount}</span>
+            </div>
+            <div class="log-summary-item">
+                <span class="log-summary-label">Returned</span>
+                <span class="log-summary-value">${returnedCount}</span>
+            </div>
+            <div class="log-summary-item">
+                <span class="log-summary-label">Pending Return</span>
+                <span class="log-summary-value">${pendingCount}</span>
+            </div>
+        </div>
+        ${cardsHtml}
+    `;
+}
 // Filter Daily Log
 function filterDailyLog(status) {
     // Update active button
@@ -2753,88 +3068,165 @@ function filterDailyLog(status) {
 function populateCheckoutItems() {
     const select = document.getElementById('checkoutItemSelect');
     if (!select) return;
-    
-    const availableItems = inventoryData.filter(item => 
+
+    const availableItems = inventoryData.filter(item =>
         item.status === 'Available' && item.quantity > 0
     );
-    
+
     select.innerHTML = '<option value="">-- Select an item --</option>' +
-        availableItems.map(item => 
+        availableItems.map(item =>
             `<option value="${item.itemId}" data-name="${item.name}" data-qty="${item.quantity}">${item.name} (${item.itemId}) - Qty: ${item.quantity}</option>`
         ).join('');
+}
+
+function renderCheckoutSelectedItems() {
+    const container = document.getElementById('checkoutSelectedItems');
+    if (!container) return;
+
+    if (checkoutDraftItems.length === 0) {
+        container.innerHTML = '<div class="checkout-selected-empty">No items selected</div>';
+        return;
+    }
+
+    container.innerHTML = checkoutDraftItems.map(item => `
+        <div class="checkout-selected-item">
+            <div class="checkout-selected-info">
+                <div class="checkout-selected-name">${escapeHtml(item.itemName)}</div>
+                <div class="checkout-selected-meta">${escapeHtml(item.itemId)} \u2022 Max: ${item.maxQty}</div>
+            </div>
+            <div class="checkout-selected-controls">
+                <input type="number" min="1" max="${item.maxQty}" value="${item.qty}"
+                       onchange="updateCheckoutDraftQty('${item.itemId}', this.value)"
+                       onclick="event.stopPropagation()">
+                <button type="button" class="checkout-remove-btn" onclick="removeCheckoutItem('${item.itemId}')">Delete</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function addCheckoutItem() {
+    const select = document.getElementById('checkoutItemSelect');
+    const qtyInput = document.getElementById('checkoutQty');
+    const selected = select?.selectedOptions?.[0];
+
+    if (!selected || !selected.value) {
+        showToast('Select an item to add.', 'error');
+        return;
+    }
+
+    const itemId = selected.value;
+    const itemName = selected.dataset.name || selected.textContent || itemId;
+    const maxQty = parseInt(selected.dataset.qty, 10) || 1;
+    const qty = Math.min(Math.max(1, parseInt(qtyInput?.value, 10) || 1), maxQty);
+
+    const existing = checkoutDraftItems.find(i => i.itemId === itemId);
+    if (existing) {
+        existing.qty = qty;
+    } else {
+        checkoutDraftItems.push({ itemId, itemName, qty, maxQty });
+    }
+
+    renderCheckoutSelectedItems();
+    showToast('Item added to checkout list.', 'success');
+}
+
+function updateCheckoutDraftQty(itemId, qty) {
+    const item = checkoutDraftItems.find(i => i.itemId === itemId);
+    if (!item) return;
+    item.qty = Math.min(Math.max(1, parseInt(qty, 10) || 1), item.maxQty);
+    renderCheckoutSelectedItems();
+}
+
+function removeCheckoutItem(itemId) {
+    checkoutDraftItems = checkoutDraftItems.filter(i => i.itemId !== itemId);
+    renderCheckoutSelectedItems();
+}
+
+function resetCheckoutDraft() {
+    checkoutDraftItems = [];
+    renderCheckoutSelectedItems();
 }
 
 // Update checkout item info
 function updateCheckoutItemInfo() {
     const select = document.getElementById('checkoutItemSelect');
     const qtyInput = document.getElementById('checkoutQty');
-    const selected = select.selectedOptions[0];
-    
+    const selected = select?.selectedOptions?.[0];
+
     if (selected && selected.value) {
-        const maxQty = parseInt(selected.dataset.qty) || 1;
+        const maxQty = parseInt(selected.dataset.qty, 10) || 1;
         qtyInput.max = maxQty;
-        if (parseInt(qtyInput.value) > maxQty) {
+        if ((parseInt(qtyInput.value, 10) || 1) > maxQty) {
             qtyInput.value = maxQty;
         }
     }
 }
 
 // Generate Log ID
-function generateLogId() {
-    const count = dailyLogData.length + 1;
+function generateLogId(offset = 0) {
+    const count = dailyLogData.length + 1 + offset;
     return `LOG-${String(count).padStart(4, '0')}`;
 }
 
 // Create Checkout
 async function createCheckout(e) {
     e.preventDefault();
-    
-    const select = document.getElementById('checkoutItemSelect');
-    const selectedOption = select.selectedOptions[0];
-    
-    const logId = generateLogId();
+
+    if (checkoutDraftItems.length === 0) {
+        showToast('Add at least one item to checkout.', 'error');
+        return;
+    }
+
     const today = new Date().toISOString().split('T')[0];
-    
-    const checkoutData = {
-        action: 'createDailyLog',
-        logId: logId,
-        itemId: select.value,
-        itemName: selectedOption.dataset.name,
-        teamMember: document.getElementById('checkoutMember').value,
-        purpose: document.getElementById('checkoutPurpose').value,
-        requestDate: today,
-        expectedReturn: document.getElementById('checkoutReturnDate').value,
-        status: 'Requested',
-        handedOverBy: document.getElementById('checkoutHandedBy').value || '',
-        handoverDate: '',
-        returnDate: '',
-        notes: document.getElementById('checkoutNotes').value || ''
-    };
-    
+    const teamMember = document.getElementById('checkoutMember').value;
+    const purpose = document.getElementById('checkoutPurpose').value;
+    const expectedReturn = document.getElementById('checkoutReturnDate').value;
+    const handedOverBy = document.getElementById('checkoutHandedBy').value || '';
+    const baseNotes = document.getElementById('checkoutNotes').value || '';
+
     try {
         showToast('Creating checkout...', 'success');
-        
-        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=createDailyLog', {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(checkoutData)
-        });
-        
-        showToast('✅ Checkout created!', 'success');
+
+        for (let idx = 0; idx < checkoutDraftItems.length; idx++) {
+            const item = checkoutDraftItems[idx];
+            const checkoutData = {
+                action: 'createDailyLog',
+                logId: generateLogId(idx),
+                itemId: item.itemId,
+                itemName: item.itemName,
+                teamMember,
+                purpose,
+                requestDate: today,
+                expectedReturn,
+                status: 'Requested',
+                handedOverBy,
+                handoverDate: '',
+                returnDate: '',
+                notes: [`Qty: ${item.qty}`, baseNotes].filter(Boolean).join(' | ')
+            };
+
+            await fetch(CONFIG.APPS_SCRIPT_URL + '?action=createDailyLog', {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(checkoutData)
+            });
+        }
+
+        showToast(`? Checkout created for ${checkoutDraftItems.length} item(s)!`, 'success');
         document.getElementById('checkoutForm').reset();
-        
+        resetCheckoutDraft();
+
         setTimeout(async () => {
-            loadDailyLogData();
+            await loadDailyLogData();
             switchView('dailyLog');
         }, 1500);
-        
+
     } catch (error) {
         console.error('Error creating checkout:', error);
         showToast('Failed to create checkout', 'error');
     }
 }
-
 // Hand over item
 async function handoverItem(logId) {
     const handedBy = prompt('Who is handing over? (Your name)');
@@ -2924,6 +3316,7 @@ switchView = function(viewName) {
     }
     if (viewName === 'checkoutItem') {
         populateCheckoutItems();
+        resetCheckoutDraft();
     }
     
     // Call original
@@ -3702,7 +4095,7 @@ function viewEmployeeDetail(empId) {
         
         <h3 style="margin-bottom: 12px;">📦 Current Assets</h3>
         ${activeAssets.length === 0 ? '<p style="color: #64748b;">No active assets assigned</p>' : 
-            `<table style="width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
+            `<table style="width: 100%; border-collapse: collapse; background: white; color: #1e293b; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
                 <thead style="background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
                     <tr>
                         <th style="padding: 12px; text-align: left; font-size: 13px; color: #64748b;">Product Name</th>
@@ -3728,7 +4121,7 @@ function viewEmployeeDetail(empId) {
         
         ${returnedAssets.length > 0 ? `
             <h3 style="margin: 24px 0 12px 0; color: #64748b;">📋 History (Returned)</h3>
-            <table style="width: 100%; border-collapse: collapse; background: #f8fafc; border-radius: 8px; overflow: hidden; opacity: 0.8;">
+            <table style="width: 100%; border-collapse: collapse; background: #f8fafc; color: #334155; border-radius: 8px; overflow: hidden; opacity: 0.8;">
                 <thead style="border-bottom: 1px solid #e2e8f0;">
                     <tr>
                         <th style="padding: 10px; text-align: left; font-size: 12px; color: #64748b;">Product Name</th>
@@ -3869,6 +4262,25 @@ function goBackToEmployeeDetail() {
 // Update switchView for Employee views
 const empOriginalSwitchView = switchView;
 switchView = function(viewName) {
+    if (viewName === 'createDC') {
+        const form = document.getElementById('createDCForm');
+        if (form && !isOpeningDCEdit) {
+            form.reset();
+            delete form.dataset.editingDC;
+            delete form.dataset.rowIndex;
+            delete form.dataset.returnToDC;
+
+            const submitBtn = form.querySelector('button[type="submit"]');
+            if (submitBtn) submitBtn.textContent = 'Create DC (Draft)';
+
+            selectedDCItems = [];
+            updateSelectedItemsList();
+            if (typeof updateCreateDCBackButton === 'function') {
+                updateCreateDCBackButton();
+            }
+        }
+    }
+
     // Handle Employee Assets views
     if (viewName === 'employeeAssets') {
         loadEmployeesData().then(renderEmployees);
@@ -3922,3 +4334,9 @@ async function deleteDC(dcNumber) {
         showToast('Failed to delete DC', 'error');
     }
 }
+
+
+
+
+
+

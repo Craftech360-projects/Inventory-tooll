@@ -1,21 +1,39 @@
-// Netlify serverless function to fetch daily log data from Google Sheets
-const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/1MrwDU0XtemyfpwWNX551ulfUIAFECB4cLCPhNJH1yuo/export?format=csv&gid=';
+// Netlify serverless function to fetch DailyLog rows via Apps Script JSON endpoint.
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxh4EkJYjC1EjI7rrbMcza1_XPs5WOp5_7RQlJlro-QZhVl5P41fxQVIAOyT-wrprlf/exec';
 
-// Will need to get the actual gid for DailyLog sheet
-// For now, try to export - the sheet will be created by Apps Script
+const HEADER = [
+  'Log ID',
+  'Item ID',
+  'Item Name',
+  'Team Member',
+  'Purpose',
+  'Request Date',
+  'Expected Return',
+  'Status',
+  'Handed Over By',
+  'Handover Date',
+  'Return Date',
+  'Notes'
+];
 
-exports.handler = async (event, context) => {
+function toCsv(rows) {
+  const escapeCell = (value) => {
+    const str = String(value ?? '');
+    if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
+    return str;
+  };
+  return rows.map((row) => row.map(escapeCell).join(',')).join('\n');
+}
+
+exports.handler = async () => {
   try {
-    // Try to get DailyLog sheet - gid will be determined after sheet creation
-    // Using a placeholder gid, Apps Script will create the sheet
-    const response = await fetch(SHEET_CSV_URL + 'DailyLog', {
+    const response = await fetch(`${APPS_SCRIPT_URL}?action=dailyLog&_=${Date.now()}`, {
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache'
       }
     });
-    
-    // If sheet doesn't exist, return empty
+
     if (!response.ok) {
       return {
         statusCode: 200,
@@ -23,12 +41,14 @@ exports.handler = async (event, context) => {
           'Content-Type': 'text/csv',
           'Access-Control-Allow-Origin': '*'
         },
-        body: 'Log ID,Item ID,Item Name,Team Member,Purpose,Request Date,Expected Return,Status,Handed Over By,Handover Date,Return Date,Notes'
+        body: toCsv([HEADER])
       };
     }
-    
-    const csvText = await response.text();
-    
+
+    const data = await response.json();
+    const rows = Array.isArray(data) && data.length > 0 ? data : [HEADER];
+    const csvText = toCsv(rows);
+
     return {
       statusCode: 200,
       headers: {
@@ -39,14 +59,13 @@ exports.handler = async (event, context) => {
       body: csvText
     };
   } catch (error) {
-    // Return header row if error (sheet doesn't exist yet)
     return {
       statusCode: 200,
       headers: {
         'Content-Type': 'text/csv',
         'Access-Control-Allow-Origin': '*'
       },
-      body: 'Log ID,Item ID,Item Name,Team Member,Purpose,Request Date,Expected Return,Status,Handed Over By,Handover Date,Return Date,Notes'
+      body: toCsv([HEADER])
     };
   }
 };

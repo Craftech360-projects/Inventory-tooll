@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CFT Inventory System v3 | Craftech360</title>
+    <link rel="icon" type="image/png" href="assets/favicon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
@@ -16,70 +17,70 @@
         <!-- Sidebar -->
         <aside class="sidebar">
             <div class="logo">
-                <span class="logo-icon">📦</span>
+                <img src="assets/logo.png" alt="CFT Logo" class="logo-image">
                 <span class="logo-text">CFT Inventory</span>
             </div>
             <nav class="nav-menu">
                 <a href="#" class="nav-item active" data-view="dashboard">
-                    <span class="nav-icon">📊</span>
+                    <span class="nav-icon">&#x1F4CA;</span>
                     <span>Dashboard</span>
                 </a>
                 <a href="#" class="nav-item" data-view="inventory">
-                    <span class="nav-icon">📋</span>
+                    <span class="nav-icon">&#x1F4CB;</span>
                     <span>All Items</span>
                 </a>
                 <a href="#" class="nav-item" data-view="add">
-                    <span class="nav-icon">➕</span>
+                    <span class="nav-icon">&#x2795;</span>
                     <span>Add Item</span>
                 </a>
                 <a href="#" class="nav-item" data-view="categories">
-                    <span class="nav-icon">🏷️</span>
+                    <span class="nav-icon">&#x1F3F7;&#xFE0F;</span>
                     <span>Categories</span>
                 </a>
                 <div class="nav-divider"></div>
                 <a href="#" class="nav-item" data-view="deliveryChannels">
-                    <span class="nav-icon">🚚</span>
+                    <span class="nav-icon">&#x1F69A;</span>
                     <span>Delivery Channels</span>
                 </a>
                 <a href="#" class="nav-item" data-view="createDC">
-                    <span class="nav-icon">📝</span>
+                    <span class="nav-icon">&#x1F4DD;</span>
                     <span>Create DC</span>
                 </a>
                 <div class="nav-divider"></div>
                 <a href="#" class="nav-item" data-view="dailyLog">
-                    <span class="nav-icon">🔄</span>
+                    <span class="nav-icon">&#x1F504;</span>
                     <span>Daily Log</span>
                 </a>
                 <a href="#" class="nav-item" data-view="checkoutItem">
-                    <span class="nav-icon">📤</span>
+                    <span class="nav-icon">&#x1F4E4;</span>
                     <span>Checkout Item</span>
                 </a>
                 <div class="nav-divider"></div>
                 <a href="#" class="nav-item" data-view="employeeAssets">
-                    <span class="nav-icon">👤</span>
+                    <span class="nav-icon">&#x1F464;</span>
                     <span>Employee Assets</span>
                 </a>
                 <a href="#" class="nav-item" data-view="builds">
-                    <span class="nav-icon">🔨</span>
+                    <span class="nav-icon">&#x1F528;</span>
                     <span>Product Builds</span>
                 </a>
                 <a href="#" class="nav-item" data-view="createBuild">
-                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-icon">&#x2699;&#xFE0F;</span>
                     <span>Build Product</span>
                 </a>
                 <div class="nav-divider"></div>
                 <a href="#" class="nav-item" data-view="purchaseRequests">
-                    <span class="nav-icon">🛒</span>
+                    <span class="nav-icon">&#x1F6D2;</span>
                     <span>Purchase Requests</span>
                 </a>
                 <a href="#" class="nav-item" data-view="createPR">
-                    <span class="nav-icon">➕</span>
+                    <span class="nav-icon">&#x2795;</span>
                     <span>New PR</span>
                 </a>
             </nav>
             <div class="sidebar-footer">
                 <button class="sync-btn" onclick="loadData()">
-                    <span class="sync-icon">🔄</span>
+                    <span class="sync-icon">&#x1F504;</span>
                     <span>Sync Data</span>
                 </button>
                 <div class="last-sync">Last sync: <span id="lastSync">Never</span></div>
@@ -91,7 +92,10 @@
             <!-- Header -->
             <header class="header">
                 <div class="header-left">
-                    <h1 id="pageTitle">Dashboard</h1>
+                    <div class="header-title-row">
+                        <h1 id="pageTitle">Dashboard</h1>
+                        <button id="dcHeaderBackBtn" class="btn-back header-back-btn" onclick="switchView('deliveryChannels')" style="display: none;">&#x2190; Back</button>
+                    </div>
                     <p class="header-subtitle">Craftech360 Inventory Management</p>
                 </div>
                 <div class="header-right">
@@ -105,30 +109,30 @@
             <section id="dashboardView" class="view active">
                 <div class="stats-grid">
                     <div class="stat-card">
-                        <div class="stat-icon">📦</div>
+                        <div class="stat-icon">&#x1F4E6;</div>
                         <div class="stat-info">
                             <span class="stat-value" id="totalItems">0</span>
                             <span class="stat-label">Total Items</span>
                         </div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-icon">✅</div>
+                        <div class="stat-icon">&#x2705;</div>
                         <div class="stat-info">
                             <span class="stat-value" id="availableItems">0</span>
                             <span class="stat-label">Available</span>
                         </div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-icon">🔧</div>
+                        <div class="stat-icon">&#x1F527;</div>
                         <div class="stat-info">
                             <span class="stat-value" id="inUseItems">0</span>
                             <span class="stat-label">In Use</span>
                         </div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-icon">💰</div>
+                        <div class="stat-icon">&#x1F4B0;</div>
                         <div class="stat-info">
-                            <span class="stat-value" id="totalValue">₹0</span>
+                            <span class="stat-value" id="totalValue">&#x20B9;0</span>
                             <span class="stat-label">Total Value</span>
                         </div>
                     </div>
@@ -172,7 +176,7 @@
                             <option value="Dead Stock">Dead Stock</option>
                         </select>
                     </div>
-                    <button class="export-btn" onclick="exportData()">📥 Export CSV</button>
+                    <button class="export-btn" onclick="exportData()">&#x1F4E5; Export CSV</button>
                 </div>
                 <div class="table-container">
                     <table class="inventory-table">
@@ -214,7 +218,7 @@
                                     <option value="Mechanical Division">Mechanical Division</option>
                                     <option value="Office Assets">Office Assets</option>
                                     <option value="Dead Stock">Dead Stock</option>
-                                    <option value="Rented Equipment">🔄 Rented Equipment</option>
+                                    <option value="Rented Equipment">&#x1F504; Rented Equipment</option>
                                 </select>
                             </div>
                             <div class="form-group">
@@ -241,7 +245,7 @@
                                 <input type="text" id="itemLocation" placeholder="e.g., Warehouse A">
                             </div>
                             <div class="form-group">
-                                <label>Value (₹)</label>
+                                <label>Value (&#x20B9;)</label>
                                 <input type="number" id="itemValue" min="0" value="0">
                             </div>
                             <div class="form-group full-width">
@@ -251,7 +255,7 @@
                             
                             <!-- Rental-specific fields (hidden by default) -->
                             <div id="rentalFields" class="rental-fields" style="display: none; grid-column: span 2;">
-                                <h4 style="margin: 20px 0 15px; color: var(--primary-light);">🔄 Rental Details</h4>
+                                <h4 style="margin: 20px 0 15px; color: var(--primary-light);">&#x1F504; Rental Details</h4>
                                 <div class="form-grid">
                                     <div class="form-group">
                                         <label>Return Date *</label>
@@ -270,11 +274,11 @@
                                         <input type="text" id="itemVendorContact" placeholder="Phone/Email">
                                     </div>
                                     <div class="form-group">
-                                        <label>Rental Cost (₹)</label>
+                                        <label>Rental Cost (&#x20B9;)</label>
                                         <input type="number" id="itemRentalCost" min="0" value="0">
                                     </div>
                                     <div class="form-group">
-                                        <label>Deposit (₹)</label>
+                                        <label>Deposit (&#x20B9;)</label>
                                         <input type="number" id="itemDeposit" min="0" value="0">
                                     </div>
                                 </div>
@@ -300,14 +304,14 @@
                     <div class="filter-group">
                         <select id="dcStatusFilter" onchange="filterDCs()">
                             <option value="">All Status</option>
-                            <option value="Draft">📝 Draft</option>
-                            <option value="Pending Approval">⏳ Pending Approval</option>
-                            <option value="Approved">✅ Approved</option>
-                            <option value="Dispatched">🚚 Dispatched</option>
-                            <option value="At Event">📍 At Event</option>
-                            <option value="Returning">↩️ Returning</option>
-                            <option value="Inspection">🔍 Inspection</option>
-                            <option value="Closed">✅ Closed</option>
+                            <option value="Draft">&#x1F4DD; Draft</option>
+                            <option value="Pending Approval">&#x23F3; Pending Approval</option>
+                            <option value="Approved">&#x2705; Approved</option>
+                            <option value="Dispatched">&#x1F69A; Dispatched</option>
+                            <option value="At Event">&#x1F4CD; At Event</option>
+                            <option value="Returning">&#x21A9;&#xFE0F; Returning</option>
+                            <option value="Inspection">&#x1F50D; Inspection</option>
+                            <option value="Closed">&#x2705; Closed</option>
                         </select>
                         <input type="text" id="dcSearch" placeholder="Search by event/client..." onkeyup="filterDCs()">
                     </div>
@@ -321,7 +325,10 @@
             <!-- Create DC View -->
             <section id="createDCView" class="view">
                 <div class="card form-card" style="max-width: 1000px;">
-                    <h3>🚚 Create Delivery Channel</h3>
+                    <div class="create-dc-header">
+                        <h3>&#x1F69A; Create Delivery Channel</h3>
+                        <button id="createDCEditBackBtn" type="button" class="btn-back create-dc-back-btn" onclick="goBackFromCreateDCEdit()" style="display: none;">&#x2190; Back to DC Details</button>
+                    </div>
                     <form id="createDCForm" onsubmit="createDC(event)">
                         <div class="form-section">
                             <h4>Event Details</h4>
@@ -519,7 +526,7 @@
                                     <option value="Low">Low</option>
                                     <option value="Medium" selected>Medium</option>
                                     <option value="High">High</option>
-                                    <option value="Urgent">🔥 Urgent</option>
+                                    <option value="Urgent">&#x1F525; Urgent</option>
                                 </select>
                             </div>
                             <div class="form-group">
@@ -551,18 +558,18 @@
             <section id="dailyLogView" class="view">
                 <div class="view-header">
                     <div>
-                        <h2>📋 Daily Inventory Log</h2>
+                        <h2>&#x1F4CB; Daily Inventory Log</h2>
                         <p class="view-subtitle">Track R&D checkouts and returns</p>
                     </div>
-                    <button class="btn-primary" onclick="switchView('checkoutItem')">📤 New Checkout</button>
+                    <button class="btn-primary" onclick="switchView('checkoutItem')">&#x1F4E4; New Checkout</button>
                 </div>
                 
                 <!-- Log Filters -->
                 <div class="log-filters">
                     <button class="log-filter-btn active" data-filter="all" onclick="filterDailyLog('all')">All</button>
-                    <button class="log-filter-btn" data-filter="Requested" onclick="filterDailyLog('Requested')">📋 Requested</button>
-                    <button class="log-filter-btn" data-filter="Handed Over" onclick="filterDailyLog('Handed Over')">🤝 Handed Over</button>
-                    <button class="log-filter-btn" data-filter="Returned" onclick="filterDailyLog('Returned')">✅ Returned</button>
+                    <button class="log-filter-btn" data-filter="Requested" onclick="filterDailyLog('Requested')">&#x1F4CB; Requested</button>
+                    <button class="log-filter-btn" data-filter="Handed Over" onclick="filterDailyLog('Handed Over')">&#x1F91D; Handed Over</button>
+                    <button class="log-filter-btn" data-filter="Returned" onclick="filterDailyLog('Returned')">&#x2705; Returned</button>
                 </div>
                 
                 <!-- Log List -->
@@ -575,7 +582,7 @@
             <section id="checkoutItemView" class="view">
                 <div class="view-header">
                     <div>
-                        <h2>📤 Checkout Item</h2>
+                        <h2>&#x1F4E4; Checkout Item</h2>
                         <p class="view-subtitle">Hand over inventory for R&D use</p>
                     </div>
                 </div>
@@ -585,13 +592,22 @@
                         <div class="form-grid">
                             <div class="form-group">
                                 <label>Select Item *</label>
-                                <select id="checkoutItemSelect" required onchange="updateCheckoutItemInfo()">
+                                <select id="checkoutItemSelect" onchange="updateCheckoutItemInfo()">
                                     <option value="">-- Select an item --</option>
                                 </select>
+                                <div class="checkout-add-row">
+                                    <button type="button" class="btn-add-checkout-item" onclick="addCheckoutItem()">+ Add Selected Item</button>
+                                </div>
                             </div>
                             <div class="form-group">
-                                <label>Quantity *</label>
+                                <label>Quantity</label>
                                 <input type="number" id="checkoutQty" min="1" value="1" required>
+                            </div>
+                            <div class="form-group full-width">
+                                <label>Items to Checkout *</label>
+                                <div id="checkoutSelectedItems" class="checkout-selected-list">
+                                    <div class="checkout-selected-empty">No items selected</div>
+                                </div>
                             </div>
                             <div class="form-group">
                                 <label>Team Member *</label>
@@ -616,7 +632,7 @@
                         </div>
                         
                         <div class="form-actions">
-                            <button type="submit" class="btn-primary">📤 Checkout Item</button>
+                            <button type="submit" class="btn-primary">&#x1F4E4; Checkout Item</button>
                             <button type="button" class="btn-secondary" onclick="switchView('dailyLog')">Cancel</button>
                         </div>
                     </form>
@@ -655,7 +671,7 @@
             <!-- Add Employee View -->
             <section id="addEmployeeView" class="view">
                 <div class="card form-card">
-                    <h2>👤 Add New Employee</h2>
+                    <h2>&#x1F464; Add New Employee</h2>
                     <form id="addEmployeeForm" onsubmit="addEmployee(event)">
                         <div class="form-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
                             <div class="form-group">
@@ -692,7 +708,7 @@
                             </div>
                         </div>
                         <div class="form-actions">
-                            <button type="submit" class="btn-primary">👤 Add Employee</button>
+                            <button type="submit" class="btn-primary">&#x1F464; Add Employee</button>
                             <button type="button" class="btn-secondary" onclick="switchView('employeeAssets')">Cancel</button>
                         </div>
                     </form>
@@ -701,7 +717,7 @@
 
             <!-- Employee Detail View -->
             <section id="employeeDetailView" class="view">
-                <button class="btn-secondary" onclick="switchView('employeeAssets')" style="margin-bottom: 16px;">← Back to Employees</button>
+                <button class="btn-secondary" onclick="switchView('employeeAssets')" style="margin-bottom: 16px;">&#x2190; Back to Employees</button>
                 <div id="employeeDetailContent">
                     <!-- Employee details will be loaded here -->
                 </div>
@@ -710,7 +726,7 @@
             <!-- Add Asset to Employee View -->
             <section id="addAssetToEmployeeView" class="view">
                 <div class="card form-card">
-                    <h2>📦 Assign Asset to Employee</h2>
+                    <h2>&#x1F4E6; Assign Asset to Employee</h2>
                     <form id="assignAssetForm" onsubmit="assignAssetToEmployee(event)">
                         <div class="form-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
                             <div class="form-group">
@@ -744,7 +760,7 @@
                             <strong>Value:</strong> <span id="previewAssetValue">-</span>
                         </div>
                         <div class="form-actions">
-                            <button type="submit" class="btn-primary">✅ Assign Asset</button>
+                            <button type="submit" class="btn-primary">&#x2705; Assign Asset</button>
                             <button type="button" class="btn-secondary" onclick="goBackToEmployeeDetail()">Cancel</button>
                         </div>
                     </form>
@@ -756,9 +772,9 @@
                 <div class="toolbar">
                     <div class="filter-group">
                         <button class="build-filter-btn active" data-filter="all" onclick="filterBuilds('all')">All</button>
-                        <button class="build-filter-btn" data-filter="In Progress" onclick="filterBuilds('In Progress')">🔧 In Progress</button>
-                        <button class="build-filter-btn" data-filter="Completed" onclick="filterBuilds('Completed')">✅ Completed</button>
-                        <button class="build-filter-btn" data-filter="Cancelled" onclick="filterBuilds('Cancelled')">❌ Cancelled</button>
+                        <button class="build-filter-btn" data-filter="In Progress" onclick="filterBuilds('In Progress')">&#x1F527; In Progress</button>
+                        <button class="build-filter-btn" data-filter="Completed" onclick="filterBuilds('Completed')">&#x2705; Completed</button>
+                        <button class="build-filter-btn" data-filter="Cancelled" onclick="filterBuilds('Cancelled')">&#x274C; Cancelled</button>
                     </div>
                     <button class="btn-primary" onclick="switchView('createBuild')">+ New Build</button>
                 </div>
@@ -770,7 +786,7 @@
             <!-- Create Build View -->
             <section id="createBuildView" class="view">
                 <div class="card form-card">
-                    <h3>🔨 Build New Product</h3>
+                    <h3>&#x1F528; Build New Product</h3>
                     <form id="createBuildForm" onsubmit="createBuild(event)">
                         <div class="form-grid">
                             <div class="form-group">
@@ -795,12 +811,12 @@
                                 <input type="text" id="buildCreatedBy" required placeholder="Your name">
                             </div>
                             <div class="form-group">
-                                <label>Estimated Value (₹)</label>
+                                <label>Estimated Value (&#x20B9;)</label>
                                 <input type="number" id="buildEstValue" min="0" placeholder="Final product value">
                             </div>
                         </div>
                         
-                        <h4 style="margin: 24px 0 16px; color: var(--primary-light);">📦 Select Components</h4>
+                        <h4 style="margin: 24px 0 16px; color: var(--primary-light);">&#x1F4E6; Select Components</h4>
                         
                         <div class="build-components-section">
                             <div class="build-search-box">
@@ -825,7 +841,7 @@
                         </div>
                         
                         <div class="form-actions">
-                            <button type="submit" class="btn-primary">🔨 Create Build</button>
+                            <button type="submit" class="btn-primary">&#x1F528; Create Build</button>
                             <button type="button" class="btn-secondary" onclick="switchView('builds')">Cancel</button>
                         </div>
                     </form>
@@ -868,7 +884,7 @@
                             <option value="Mechanical Division">Mechanical Division</option>
                             <option value="Office Assets">Office Assets</option>
                             <option value="Dead Stock">Dead Stock</option>
-                            <option value="Rented Equipment">🔄 Rented Equipment</option>
+                            <option value="Rented Equipment">&#x1F504; Rented Equipment</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -896,7 +912,7 @@
                         <input type="text" id="editItemLocation">
                     </div>
                     <div class="form-group">
-                        <label>Value (₹)</label>
+                        <label>Value (&#x20B9;)</label>
                         <input type="number" id="editItemValue" min="0">
                     </div>
                     <div class="form-group full-width">
@@ -906,7 +922,7 @@
                     
                     <!-- Rental-specific fields (hidden by default) -->
                     <div id="editRentalFields" class="rental-fields" style="display: none; grid-column: span 2;">
-                        <h4 style="margin: 20px 0 15px; color: var(--primary-light);">🔄 Rental Details</h4>
+                        <h4 style="margin: 20px 0 15px; color: var(--primary-light);">&#x1F504; Rental Details</h4>
                         <div class="form-grid">
                             <div class="form-group">
                                 <label>Return Date</label>
@@ -925,11 +941,11 @@
                                 <input type="text" id="editItemVendorContact">
                             </div>
                             <div class="form-group">
-                                <label>Rental Cost (₹)</label>
+                                <label>Rental Cost (&#x20B9;)</label>
                                 <input type="number" id="editItemRentalCost" min="0">
                             </div>
                             <div class="form-group">
-                                <label>Deposit (₹)</label>
+                                <label>Deposit (&#x20B9;)</label>
                                 <input type="number" id="editItemDeposit" min="0">
                             </div>
                         </div>
@@ -947,13 +963,13 @@
     <div id="checkoutModal" class="modal">
         <div class="modal-content modal-lg">
             <div class="modal-header">
-                <h3>📤 Check Out Items</h3>
+                <h3>&#x1F4E4; Check Out Items</h3>
                 <button class="close-btn" onclick="closeCheckoutModal()">&times;</button>
             </div>
             <div class="modal-body">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                     <p style="color: var(--text-muted); margin: 0;">Verify all items before dispatch.</p>
-                    <button class="btn-select-all" onclick="selectAllCheckout()">✓ Select All</button>
+                    <button class="btn-select-all" onclick="selectAllCheckout()">&#x2713; Select All</button>
                 </div>
                 <div id="checkoutItemsList" class="checkout-items-list">
                     <!-- Items will be loaded here -->
@@ -965,7 +981,7 @@
                 </div>
                 <button class="btn-secondary" onclick="closeCheckoutModal()">Cancel</button>
                 <button class="btn-checkout-confirm" id="confirmCheckoutBtn" onclick="confirmCheckout()" disabled>
-                    Confirm Check Out →
+                    Confirm Check Out &#x2192;
                 </button>
             </div>
         </div>
@@ -975,13 +991,13 @@
     <div id="checkinModal" class="modal">
         <div class="modal-content modal-lg">
             <div class="modal-header">
-                <h3>📥 Check In Items</h3>
+                <h3>&#x1F4E5; Check In Items</h3>
                 <button class="close-btn" onclick="closeCheckinModal()">&times;</button>
             </div>
             <div class="modal-body">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                     <p style="color: var(--text-muted); margin: 0;">Verify all returned items.</p>
-                    <button class="btn-select-all" onclick="selectAllCheckin()">✓ Select All</button>
+                    <button class="btn-select-all" onclick="selectAllCheckin()">&#x2713; Select All</button>
                 </div>
                 <div id="checkinItemsList" class="checkout-items-list">
                     <!-- Items will be loaded here -->
@@ -997,7 +1013,7 @@
                 </div>
                 <button class="btn-secondary" onclick="closeCheckinModal()">Cancel</button>
                 <button class="btn-checkin-confirm" id="confirmCheckinBtn" onclick="confirmCheckin()">
-                    Confirm Check In & Close DC ✓
+                    Confirm Check In & Close DC &#x2713;
                 </button>
             </div>
         </div>
@@ -1027,3 +1043,4 @@
 </body>
 </html>
 <!-- force rebuild Thu Mar 12 16:44:28 UTC 2026 -->
+
