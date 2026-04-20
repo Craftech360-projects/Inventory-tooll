@@ -832,40 +832,43 @@ async function loadDCData() {
         });
         const csvText = await response.text();
         const data = parseCSV(csvText);
-        
-        if (data && data.length > 1) {
-            dcData = data.slice(1).filter(row => row[0]).map((row, index) => ({
-                rowIndex: index + 2,
-                dcNumber: row[0] || '',
-                eventName: row[1] || '',
-                activity: row[2] || '',
-                eventDate: row[3] || '',
-                eventLocation: row[4] || '',
-                clientName: row[5] || '',
-                clientPOC: row[6] || '',
-                clientPhone: row[7] || '',
-                sitePOC: row[8] || '',
-                sitePhone: row[9] || '',
-                carrierName: row[10] || '',
-                carrierPhone: row[11] || '',
-                vehicleNumber: row[12] || '',
-                dispatchDate: row[13] || '',
-                expectedReturn: row[14] || '',
-                actualReturn: row[15] || '',
-                status: row[16] || 'Draft',
-                pmApprover: row[17] || '',
-                approvalDate: row[18] || '',
-                notes: row[19] || '',
-                createdDate: row[20] || '',
-                fromAddress: row[21] || '',
-                toAddress: row[22] || ''
-            }));
-            
-            filteredDCs = [...dcData];
-            updateDCList();
-        }
+
+        const rows = (data || []).slice(1);
+        dcData = rows.map((row, index) => ({
+            // Keep exact spreadsheet row index even if there are blank rows in between.
+            rowIndex: index + 2,
+            dcNumber: (row[0] || '').trim(),
+            eventName: row[1] || '',
+            activity: row[2] || '',
+            eventDate: row[3] || '',
+            eventLocation: row[4] || '',
+            clientName: row[5] || '',
+            clientPOC: row[6] || '',
+            clientPhone: row[7] || '',
+            sitePOC: row[8] || '',
+            sitePhone: row[9] || '',
+            carrierName: row[10] || '',
+            carrierPhone: row[11] || '',
+            vehicleNumber: row[12] || '',
+            dispatchDate: row[13] || '',
+            expectedReturn: row[14] || '',
+            actualReturn: row[15] || '',
+            status: row[16] || 'Draft',
+            pmApprover: row[17] || '',
+            approvalDate: row[18] || '',
+            notes: row[19] || '',
+            createdDate: row[20] || '',
+            fromAddress: row[21] || '',
+            toAddress: row[22] || ''
+        })).filter(row => row.dcNumber);
+
+        filteredDCs = [...dcData];
+        updateDCList();
     } catch (error) {
         console.error('Error loading DC data:', error);
+        dcData = [];
+        filteredDCs = [];
+        updateDCList();
     }
 }
 
@@ -1401,12 +1404,12 @@ async function editDC(dcNumber) {
 
 // Delete DC
 async function deleteDC(dcNumber) {
-    const dc = dcData.find(d => d.dcNumber === dcNumber);
-    if (!dc) return;
-    
-    if (!confirm(`Delete ${dcNumber} - "${dc.eventName}"?\n\nThis will also remove all items linked to this DC.`)) {
+    if (!confirm(`Are you sure you want to delete ${dcNumber}?\n\nThis will also remove all associated items.`)) {
         return;
     }
+    
+    const dc = dcData.find(d => d.dcNumber === dcNumber);
+    if (!dc) return;
     
     try {
         showToast('Deleting DC...', 'success');
@@ -1417,13 +1420,25 @@ async function deleteDC(dcNumber) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ dcNumber: dcNumber, rowIndex: dc.rowIndex })
         });
-        
-        showToast('✅ DC deleted!', 'success');
-        
-        setTimeout(async () => {
-            await loadDCData(); await new Promise(r => setTimeout(r, 1000));
-            switchView('deliveryChannels');
-        }, 1500);
+
+        // no-cors hides errors, so verify by reloading DC list.
+        let removed = false;
+        for (let i = 0; i < 5; i++) {
+            await new Promise(r => setTimeout(r, 800));
+            await loadDCData();
+            if (!dcData.some(d => d.dcNumber === dcNumber)) {
+                removed = true;
+                break;
+            }
+        }
+
+        if (!removed) {
+            showToast('Delete did not complete. Please try again.', 'error');
+            return;
+        }
+
+        showToast(`${dcNumber} deleted!`, 'success');
+        switchView('deliveryChannels');
         
     } catch (error) {
         console.error('Error deleting DC:', error);
@@ -4321,13 +4336,25 @@ async function deleteDC(dcNumber) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ dcNumber: dcNumber, rowIndex: dc.rowIndex })
         });
-        
-        showToast(`✅ ${dcNumber} deleted!`, 'success');
-        
-        setTimeout(async () => {
-            await loadDCData(); await new Promise(r => setTimeout(r, 1000));
-            switchView('deliveryChannels');
-        }, 1500);
+
+        // no-cors hides errors, so verify by reloading DC list.
+        let removed = false;
+        for (let i = 0; i < 5; i++) {
+            await new Promise(r => setTimeout(r, 800));
+            await loadDCData();
+            if (!dcData.some(d => d.dcNumber === dcNumber)) {
+                removed = true;
+                break;
+            }
+        }
+
+        if (!removed) {
+            showToast('Delete did not complete. Please try again.', 'error');
+            return;
+        }
+
+        showToast(`${dcNumber} deleted!`, 'success');
+        switchView('deliveryChannels');
         
     } catch (error) {
         console.error('Error deleting DC:', error);
