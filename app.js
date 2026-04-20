@@ -2914,6 +2914,8 @@ switchView = function(viewName) {
 let dailyLogData = [];
 let filteredLogData = [];
 let checkoutDraftItems = [];
+let currentDailyLogStatus = 'all';
+let currentDailyLogDate = '';
 
 function mapDailyLogRows(rows) {
     if (!Array.isArray(rows) || rows.length === 0) return [];
@@ -2932,6 +2934,70 @@ function mapDailyLogRows(rows) {
         returnDate: row[10] || '',
         notes: row[11] || ''
     }));
+}
+
+function todayIsoDate() {
+    return new Date().toISOString().split('T')[0];
+}
+
+function normalizeDateForFilter(value) {
+    if (!value) return '';
+    const text = String(value).trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+
+    const parsed = new Date(text);
+    if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toISOString().split('T')[0];
+    }
+
+    const m = text.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);
+    if (m) {
+        const day = parseInt(m[1], 10);
+        const month = parseInt(m[2], 10);
+        const year = parseInt(m[3], 10);
+        if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+            const d = new Date(Date.UTC(year, month - 1, day));
+            if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+        }
+    }
+    return '';
+}
+
+function getDailyLogDateLabel() {
+    if (!currentDailyLogDate) return 'All Days';
+    const d = new Date(currentDailyLogDate + 'T00:00:00');
+    if (Number.isNaN(d.getTime())) return currentDailyLogDate;
+    return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function applyDailyLogFilters() {
+    const base = dailyLogData.filter(log => (log.status || '').toLowerCase() !== 'deleted');
+    const byStatus = currentDailyLogStatus === 'all'
+        ? base
+        : base.filter(log => log.status === currentDailyLogStatus);
+
+    filteredLogData = currentDailyLogDate
+        ? byStatus.filter(log => normalizeDateForFilter(log.requestDate) === currentDailyLogDate)
+        : byStatus;
+
+    updateDailyLogList();
+}
+
+function setDailyLogDate(value) {
+    currentDailyLogDate = value || '';
+    const dateInput = document.getElementById('dailyLogDateFilter');
+    if (dateInput && dateInput.value !== currentDailyLogDate) {
+        dateInput.value = currentDailyLogDate;
+    }
+    applyDailyLogFilters();
+}
+
+function setDailyLogToToday() {
+    setDailyLogDate(todayIsoDate());
+}
+
+function clearDailyLogDate() {
+    setDailyLogDate('');
 }
 
 // Load Daily Log Data
@@ -2956,8 +3022,7 @@ async function loadDailyLogData() {
         }
 
         dailyLogData = mapDailyLogRows(rows);
-        filteredLogData = [...dailyLogData];
-        updateDailyLogList();
+        applyDailyLogFilters();
     } catch (error) {
         console.error('Error loading daily log:', error);
         // If function doesn't exist yet, show empty state
@@ -2976,7 +3041,7 @@ function updateDailyLogList() {
         container.innerHTML = `
             <div class="empty-state" style="text-align: center; padding: 60px; color: var(--text-muted);">
                 <div style="font-size: 22px; font-weight: 700; margin-bottom: 16px;">LOG</div>
-                <p>No checkout logs yet. Click "New Checkout" to get started!</p>
+                <p>No checkout logs for selected day/filter. Click "New Checkout" to get started!</p>
             </div>
         `;
         return;
@@ -3015,12 +3080,13 @@ function updateDailyLogList() {
             returnStateLabel = `Due on ${expectedReturnText}`;
         }
 
-        let actionBtn = '';
+        const actions = [];
         if (log.status === 'Requested') {
-            actionBtn = `<button class="btn-handover" onclick="event.stopPropagation(); handoverItem('${log.logId}')">Hand Over</button>`;
+            actions.push(`<button class="btn-handover" onclick="event.stopPropagation(); handoverItem('${log.logId}')">Hand Over</button>`);
         } else if (log.status === 'Handed Over') {
-            actionBtn = `<button class="btn-return" onclick="event.stopPropagation(); returnItem('${log.logId}')">Mark Returned</button>`;
+            actions.push(`<button class="btn-return" onclick="event.stopPropagation(); returnItem('${log.logId}')">Mark Returned</button>`);
         }
+        actions.push(`<button class="btn-log-delete" onclick="event.stopPropagation(); deleteDailyLog('${log.logId}')">Delete</button>`);
 
         return `
             <div class="log-card" onclick="viewLogDetail('${log.logId}')">
@@ -3055,12 +3121,13 @@ function updateDailyLogList() {
                     </div>
                 </div>
 
-                ${actionBtn ? `<div class="log-card-actions">${actionBtn}</div>` : ''}
+                ${actions.length ? `<div class="log-card-actions">${actions.join('')}</div>` : ''}
             </div>
         `;
     }).join('');
 
     container.innerHTML = `
+        <div class="log-selected-day">Showing: <strong>${escapeHtml(getDailyLogDateLabel())}</strong></div>
         <div class="log-summary">
             <div class="log-summary-item">
                 <span class="log-summary-label">Total Logs</span>
@@ -3084,18 +3151,12 @@ function updateDailyLogList() {
 }
 // Filter Daily Log
 function filterDailyLog(status) {
+    currentDailyLogStatus = status;
     // Update active button
     document.querySelectorAll('.log-filter-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.filter === status);
     });
-    
-    if (status === 'all') {
-        filteredLogData = [...dailyLogData];
-    } else {
-        filteredLogData = dailyLogData.filter(log => log.status === status);
-    }
-    
-    updateDailyLogList();
+    applyDailyLogFilters();
 }
 
 // Populate checkout item dropdown
@@ -3321,6 +3382,49 @@ async function returnItem(logId) {
     }
 }
 
+async function deleteDailyLog(logId) {
+    const log = dailyLogData.find(l => l.logId === logId);
+    if (!log) return;
+    if (!confirm(`Delete log ${logId} for "${log.itemName}"?`)) return;
+
+    try {
+        showToast('Deleting log...', 'success');
+
+        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=updateDailyLog', {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                logId: logId,
+                status: 'Deleted'
+            })
+        });
+
+        let removed = false;
+        for (let i = 0; i < 5; i++) {
+            await new Promise(r => setTimeout(r, 700));
+            await loadDailyLogData();
+            const stillVisible = dailyLogData.some(l =>
+                l.logId === logId && (l.status || '').toLowerCase() !== 'deleted'
+            );
+            if (!stillVisible) {
+                removed = true;
+                break;
+            }
+        }
+
+        if (!removed) {
+            showToast('Delete did not complete. Please try again.', 'error');
+            return;
+        }
+
+        showToast('Log deleted.', 'success');
+    } catch (error) {
+        console.error('Error deleting log:', error);
+        showToast('Failed to delete log', 'error');
+    }
+}
+
 // View Log Detail (simple for now)
 function viewLogDetail(logId) {
     const log = dailyLogData.find(l => l.logId === logId);
@@ -3346,6 +3450,13 @@ const logOriginalSwitchView = switchView;
 switchView = function(viewName) {
     // Handle Daily Log views
     if (viewName === 'dailyLog') {
+        if (!currentDailyLogDate) {
+            currentDailyLogDate = todayIsoDate();
+        }
+        const dateInput = document.getElementById('dailyLogDateFilter');
+        if (dateInput) {
+            dateInput.value = currentDailyLogDate;
+        }
         loadDailyLogData();
     }
     if (viewName === 'checkoutItem') {

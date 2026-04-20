@@ -565,6 +565,12 @@
                 </div>
                 
                 <!-- Log Filters -->
+                <div class="log-date-controls">
+                    <label for="dailyLogDateFilter">Day</label>
+                    <input type="date" id="dailyLogDateFilter" onchange="setDailyLogDate(this.value)">
+                    <button type="button" class="btn-secondary btn-log-date" onclick="setDailyLogToToday()">Today</button>
+                    <button type="button" class="btn-secondary btn-log-date" onclick="clearDailyLogDate()">All Days</button>
+                </div>
                 <div class="log-filters">
                     <button class="log-filter-btn active" data-filter="all" onclick="filterDailyLog('all')">All</button>
                     <button class="log-filter-btn" data-filter="Requested" onclick="filterDailyLog('Requested')">&#x1F4CB; Requested</button>
