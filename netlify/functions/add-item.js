@@ -1,85 +1,36 @@
-// Netlify function to add inventory item to Google Sheets
-const { google } = require('googleapis');
+const { insert, jsonResponse } = require('./supabase-client');
 
-const SHEET_ID = '1MrwDU0XtemyfpwWNX551ulfUIAFECB4cLCPhNJH1yuo';
-
-// Service account credentials from environment variable
-function getAuth() {
-  const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT || '{}');
-  return new google.auth.GoogleAuth({
-    credentials,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets']
-  });
+function inventoryRow(item) {
+  return {
+    'Item ID': item.itemId || '',
+    'Item Name': item.name || '',
+    Category: item.category || '',
+    'Sub-Category': item.subCategory || '',
+    Quantity: item.quantity ?? 0,
+    Status: item.status || 'Available',
+    Location: item.location || '',
+    Value: item.value ?? '',
+    'Added Date': item.addedDate || '',
+    Notes: item.notes || '',
+    'Return Date': item.returnDate || '',
+    'Event/Project': item.eventProject || '',
+    'Vendor Name': item.vendorName || '',
+    'Vendor Contact': item.vendorContact || '',
+    'Rental Cost': item.rentalCost ?? '',
+    Deposit: item.deposit ?? ''
+  };
 }
 
-exports.handler = async (event, context) => {
-  // Handle CORS preflight
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS'
-      },
-      body: ''
-    };
-  }
-
+exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Method not allowed' };
+    return jsonResponse({ success: false, error: 'Method not allowed' }, 405);
   }
 
   try {
-    const item = JSON.parse(event.body);
-    const auth = getAuth();
-    const sheets = google.sheets({ version: 'v4', auth });
-
-    // Append row to Inventory sheet
-    const values = [[
-      item.itemId,
-      item.name,
-      item.category,
-      item.subCategory,
-      item.quantity,
-      item.status,
-      item.location,
-      item.value,
-      item.addedDate,
-      item.notes,
-      item.returnDate || '',
-      item.eventProject || '',
-      item.vendorName || '',
-      item.vendorContact || '',
-      item.rentalCost || '',
-      item.deposit || ''
-    ]];
-
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: SHEET_ID,
-      range: 'Inventory!A:P',
-      valueInputOption: 'USER_ENTERED',
-      insertDataOption: 'INSERT_ROWS',
-      requestBody: { values }
-    });
-
-    return {
-      statusCode: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
-      },
-      body: JSON.stringify({ success: true, itemId: item.itemId })
-    };
+    const item = JSON.parse(event.body || '{}');
+    await insert('items', inventoryRow(item));
+    return jsonResponse({ success: true, itemId: item.itemId });
   } catch (error) {
-    console.error('Error adding item:', error);
-    return {
-      statusCode: 500,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
-      },
-      body: JSON.stringify({ error: error.message })
-    };
+    return jsonResponse({ success: false, error: error.message }, 500);
   }
 };

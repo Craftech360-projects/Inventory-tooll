@@ -1,34 +1,22 @@
-// Netlify function to fetch DC Items from Google Sheets
-const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/1MrwDU0XtemyfpwWNX551ulfUIAFECB4cLCPhNJH1yuo/gviz/tq?tqx=out:csv&sheet=DCItems';
+const { encodeFilterValue, select, toCsv, csvResponse, jsonResponse } = require('./supabase-client');
 
-exports.handler = async (event, context) => {
+const HEADERS = [
+  'DC Number',
+  'Item ID',
+  'Item Name',
+  'Category',
+  'Quantity',
+  'Return Condition',
+  'Return Notes'
+];
+
+exports.handler = async (event) => {
   try {
-    const cacheBuster = Date.now();
-    const response = await fetch(SHEET_CSV_URL + '&_=' + cacheBuster, {
-      headers: {
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache'
-      }
-    });
-    const csvText = await response.text();
-    
-    return {
-      statusCode: 200,
-      headers: {
-        'Content-Type': 'text/csv',
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'no-cache, no-store, must-revalidate'
-      },
-      body: csvText
-    };
+    const dcNumber = event.queryStringParameters?.dc;
+    const filters = dcNumber ? { 'DC Number': `eq.${encodeFilterValue(dcNumber)}` } : undefined;
+    const rows = await select('dc_items', { filters });
+    return csvResponse(toCsv(HEADERS, Array.isArray(rows) ? rows : []));
   } catch (error) {
-    return {
-      statusCode: 500,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
-      },
-      body: JSON.stringify({ error: error.message })
-    };
+    return jsonResponse({ error: error.message }, 500);
   }
 };

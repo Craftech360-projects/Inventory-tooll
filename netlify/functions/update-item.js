@@ -1,93 +1,37 @@
-// Netlify function to update inventory item in Google Sheets
-const { google } = require('googleapis');
+const { encodeFilterValue, update, jsonResponse } = require('./supabase-client');
 
-const SHEET_ID = '1MrwDU0XtemyfpwWNX551ulfUIAFECB4cLCPhNJH1yuo';
-
-function getAuth() {
-  const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT || '{}');
-  return new google.auth.GoogleAuth({
-    credentials,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets']
-  });
+function inventoryRow(item) {
+  return {
+    'Item ID': item.itemId || '',
+    'Item Name': item.name || '',
+    Category: item.category || '',
+    'Sub-Category': item.subCategory || '',
+    Quantity: item.quantity ?? 0,
+    Status: item.status || 'Available',
+    Location: item.location || '',
+    Value: item.value ?? '',
+    'Added Date': item.addedDate || '',
+    Notes: item.notes || '',
+    'Return Date': item.returnDate || '',
+    'Event/Project': item.eventProject || '',
+    'Vendor Name': item.vendorName || '',
+    'Vendor Contact': item.vendorContact || '',
+    'Rental Cost': item.rentalCost ?? '',
+    Deposit: item.deposit ?? ''
+  };
 }
 
-exports.handler = async (event, context) => {
-  // Handle CORS preflight
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS'
-      },
-      body: ''
-    };
-  }
-
+exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Method not allowed' };
+    return jsonResponse({ success: false, error: 'Method not allowed' }, 405);
   }
 
   try {
-    const item = JSON.parse(event.body);
-    const rowIndex = item.rowIndex;
-    
-    if (!rowIndex) {
-      return {
-        statusCode: 400,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify({ error: 'rowIndex required' })
-      };
-    }
-
-    const auth = getAuth();
-    const sheets = google.sheets({ version: 'v4', auth });
-
-    // Update specific row
-    const values = [[
-      item.itemId,
-      item.name,
-      item.category,
-      item.subCategory,
-      item.quantity,
-      item.status,
-      item.location,
-      item.value,
-      item.addedDate,
-      item.notes,
-      item.returnDate || '',
-      item.eventProject || '',
-      item.vendorName || '',
-      item.vendorContact || '',
-      item.rentalCost || '',
-      item.deposit || ''
-    ]];
-
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: `Inventory!A${rowIndex}:P${rowIndex}`,
-      valueInputOption: 'USER_ENTERED',
-      requestBody: { values }
-    });
-
-    return {
-      statusCode: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
-      },
-      body: JSON.stringify({ success: true, rowIndex })
-    };
+    const item = JSON.parse(event.body || '{}');
+    if (!item.itemId) throw new Error('Missing itemId');
+    await update('items', { 'Item ID': `eq.${encodeFilterValue(item.itemId)}` }, inventoryRow(item));
+    return jsonResponse({ success: true, itemId: item.itemId });
   } catch (error) {
-    console.error('Error updating item:', error);
-    return {
-      statusCode: 500,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
-      },
-      body: JSON.stringify({ error: error.message })
-    };
+    return jsonResponse({ success: false, error: error.message }, 500);
   }
 };

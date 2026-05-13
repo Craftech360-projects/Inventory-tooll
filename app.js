@@ -4,11 +4,23 @@ const CONFIG = {
     SHEET_ID: '1MrwDU0XtemyfpwWNX551ulfUIAFECB4cLCPhNJH1yuo',
     // Using Netlify function to proxy CSV (avoids CORS issues)
     CSV_URL: '/.netlify/functions/get-inventory',
-    // Direct read fallback if Netlify function is unavailable/cold
-    READ_APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxGpuUe8AkkQCrO9zB4uolgX2smc_Ih66k8VXrlWdB3794D5YuYckhaAoTq6TcozOHT/exec',
-    // Google Apps Script for write operations (deployed from the spreadsheet)
-    APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxh4EkJYjC1EjI7rrbMcza1_XPs5WOp5_7RQlJlro-QZhVl5P41fxQVIAOyT-wrprlf/exec'
+    SUPABASE_ACTION_URL: '/.netlify/functions/supabase-action',
+    EMPLOYEES_URL: '/.netlify/functions/get-employees'
 };
+
+async function supabaseAction(action, payload = {}) {
+    const response = await fetch(CONFIG.SUPABASE_ACTION_URL + '?action=' + encodeURIComponent(action), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result.success === false) {
+        throw new Error(result.error || 'Supabase action failed');
+    }
+    return result;
+}
 
 const CATEGORY_PREFIXES = {
     'IT Assets': 'IT',
@@ -293,35 +305,7 @@ async function fetchCsvRowsWithRetry(maxAttempts = 2) {
     throw lastError || new Error('CSV fetch failed');
 }
 
-async function fetchAppsScriptRows() {
-    const readUrls = [CONFIG.APPS_SCRIPT_URL, CONFIG.READ_APPS_SCRIPT_URL];
-    let lastError = null;
-
-    for (const baseUrl of readUrls) {
-        try {
-            const separator = baseUrl.includes('?') ? '&' : '?';
-            const url = `${baseUrl}${separator}action=getInventory&_=${Date.now()}`;
-            const response = await fetch(url, { cache: 'no-store' });
-
-            if (!response.ok) {
-                throw new Error('HTTP ' + response.status);
-            }
-
-            const data = await response.json();
-            if (!Array.isArray(data) || data.length === 0) {
-                throw new Error('Apps Script returned empty data');
-            }
-
-            return data;
-        } catch (error) {
-            lastError = error;
-        }
-    }
-
-    throw lastError || new Error('Apps Script fallback failed');
-}
-
-// Load Data from Google Sheets
+// Load inventory data from Supabase via Netlify Functions.
 async function loadData() {
     if (isInventoryLoading) return;
     isInventoryLoading = true;
@@ -329,16 +313,8 @@ async function loadData() {
     console.log('Loading inventory data...');
 
     try {
-        let rows = [];
-        let source = 'netlify-function';
-
-        try {
-            rows = await fetchCsvRowsWithRetry(2);
-        } catch (csvError) {
-            console.warn('Primary CSV load failed, using Apps Script fallback:', csvError.message);
-            rows = await fetchAppsScriptRows();
-            source = 'apps-script-fallback';
-        }
+        const rows = await fetchCsvRowsWithRetry(2);
+        const source = 'supabase';
 
         const items = mapRowsToInventoryItems(rows);
         console.log('Loaded', items.length, 'items from', source);
@@ -559,12 +535,7 @@ async function addItem(e) {
     try {
         showToast('Adding item...', 'success');
         
-        const response = await fetch(CONFIG.APPS_SCRIPT_URL + '?action=add', {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(newItem)
-        });
+        await supabaseAction('add', newItem);
         
         showToast('✅ Item added successfully!', 'success');
         document.getElementById('addItemForm').reset();
@@ -694,12 +665,7 @@ async function saveEdit(e) {
     try {
         showToast('Updating item...', 'success');
         
-        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=update', {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updatedData)
-        });
+        await supabaseAction('update', updatedData);
         
         closeModal();
         showToast('✅ Item updated successfully!', 'success');
@@ -715,6 +681,7 @@ async function saveEdit(e) {
 
 async function deleteItem() {
     const rowIndex = document.getElementById('editRowIndex').value;
+    const item = inventoryData.find(i => i.rowIndex == rowIndex);
     
     if (!confirm('Are you sure you want to delete this item?')) {
         return;
@@ -723,10 +690,7 @@ async function deleteItem() {
     try {
         showToast('Deleting item...', 'success');
         
-        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=delete&row=' + rowIndex, {
-            method: 'POST',
-            mode: 'no-cors'
-        });
+        await supabaseAction('delete', { itemId: item?.itemId });
         
         closeModal();
         showToast('✅ Item deleted successfully!', 'success');
@@ -1128,12 +1092,7 @@ async function createDC(e) {
         const action = isEditing ? 'updateDC' : 'createDC';
         showToast(isEditing ? 'Updating DC...' : 'Creating Delivery Channel...', 'success');
         
-        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=' + action, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(dcPayload)
-        });
+        await supabaseAction(action, dcPayload);
         
         showToast(`✅ ${dcNumber} ${isEditing ? 'updated' : 'created'} successfully!`, 'success');
         
@@ -1430,14 +1389,8 @@ async function deleteDC(dcNumber) {
         }
 
         if (hardDeleteError) {
-            // Fallback for environments without Google service-account credentials:
-            // mark as Deleted using existing Apps Script status endpoint.
-            await fetch(CONFIG.APPS_SCRIPT_URL + '?action=updateDCStatus', {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ dcNumber: dcNumber, status: 'Deleted' })
-            });
+            // If hard delete is unavailable, hide it from normal lists.
+            await supabaseAction('updateDCStatus', { dcNumber: dcNumber, status: 'Deleted' });
         }
 
         // no-cors hides errors, so verify by reloading DC list.
@@ -1521,12 +1474,7 @@ async function approveDC(dcNumber) {
     if (!approver) return;
     
     try {
-        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=approveDC', {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dcNumber, approver, date: new Date().toISOString().split('T')[0] })
-        });
+        await supabaseAction('approveDC', { dcNumber, approver, date: new Date().toISOString().split('T')[0] });
         
         showToast('✅ DC Approved!', 'success');
         setTimeout(async () => { await loadDCData(); await new Promise(r => setTimeout(r, 1000)); viewDCDetail(dcNumber); }, 1500);
@@ -1538,12 +1486,7 @@ async function approveDC(dcNumber) {
 async function dispatchDC(dcNumber) {
     const today = new Date().toISOString().split('T')[0];
     try {
-        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=dispatchDC', {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dcNumber, dispatchDate: today })
-        });
+        await supabaseAction('dispatchDC', { dcNumber, dispatchDate: today });
         
         showToast('🚚 DC Dispatched!', 'success');
         setTimeout(async () => { await loadDCData(); await new Promise(r => setTimeout(r, 1000)); viewDCDetail(dcNumber); }, 1500);
@@ -1554,12 +1497,7 @@ async function dispatchDC(dcNumber) {
 
 async function updateDCStatus(dcNumber, newStatus) {
     try {
-        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=updateDCStatus', {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dcNumber, status: newStatus })
-        });
+        await supabaseAction('updateDCStatus', { dcNumber, status: newStatus });
         
         showToast(`Status updated to ${newStatus}`, 'success');
         setTimeout(async () => { await loadDCData(); await new Promise(r => setTimeout(r, 1000)); viewDCDetail(dcNumber); }, 1500);
@@ -1571,12 +1509,7 @@ async function updateDCStatus(dcNumber, newStatus) {
 async function closeDC(dcNumber) {
     const today = new Date().toISOString().split('T')[0];
     try {
-        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=closeDC', {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dcNumber, actualReturn: today })
-        });
+        await supabaseAction('closeDC', { dcNumber, actualReturn: today });
         
         showToast('✅ DC Closed!', 'success');
         setTimeout(async () => { await loadDCData(); await new Promise(r => setTimeout(r, 1000)); viewDCDetail(dcNumber); }, 1500);
@@ -2044,12 +1977,7 @@ async function confirmCheckout() {
     
     // Update inventory items status to "In Use"
     const itemIds = checkoutItems.map(item => item.itemId);
-    await fetch(CONFIG.APPS_SCRIPT_URL + '?action=updateItemsStatus', {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemIds: itemIds, status: 'In Use' })
-    });
+    await supabaseAction('updateItemsStatus', { itemIds: itemIds, status: 'In Use' });
     
     closeCheckoutModal();
     showToast('✅ Items checked out! DC dispatched.', 'success');
@@ -2152,12 +2080,7 @@ async function confirmCheckin() {
     // Update checked items status back to "Available"
     const checkedItemIds = checkinItems.filter(i => i.checked).map(item => item.itemId);
     if (checkedItemIds.length > 0) {
-        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=updateItemsStatus', {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ itemIds: checkedItemIds, status: 'Available' })
-        });
+        await supabaseAction('updateItemsStatus', { itemIds: checkedItemIds, status: 'Available' });
     }
     
     closeCheckinModal();
@@ -2370,15 +2293,7 @@ async function createPR(event) {
     showToast('Creating purchase request...', 'success');
     
     try {
-        const response = await fetch(CONFIG.APPS_SCRIPT_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                action: 'createPR',
-                data: pr
-            })
-        });
+        await supabaseAction('createPR', { data: pr });
         
         // Add to local data
         prData.unshift(pr);
@@ -2707,16 +2622,7 @@ async function updatePRStatus(prNumber, newStatus) {
     pr.status = newStatus;
     
     try {
-        await fetch(CONFIG.APPS_SCRIPT_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                action: 'updatePR',
-                prNumber: prNumber,
-                updates: updates
-            })
-        });
+        await supabaseAction('updatePR', { prNumber: prNumber, updates: updates });
         
         showToast('✅ Status updated to ' + newStatus, 'success');
         viewPRDetail(prNumber);
@@ -2749,23 +2655,17 @@ async function saveQuote(prNumber) {
     pr.quotedBy = 'PM';
     pr.status = 'Quoted';
     
-    // Save to sheet via Apps Script
+    // Save to Supabase.
     try {
-        await fetch(CONFIG.APPS_SCRIPT_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                action: 'updatePR',
-                prNumber: prNumber,
-                updates: {
-                    status: 'Quoted',
-                    vendor: vendorName,
-                    quoteAmount: quoteAmount,
-                    quoteNotes: quoteNotes,
-                    quotedBy: 'PM'
-                }
-            })
+        await supabaseAction('updatePR', {
+            prNumber: prNumber,
+            updates: {
+                status: 'Quoted',
+                vendor: vendorName,
+                quoteAmount: quoteAmount,
+                quoteNotes: quoteNotes,
+                quotedBy: 'PM'
+            }
         });
     } catch (e) {
         console.error('Error saving quote:', e);
@@ -2861,20 +2761,14 @@ async function saveInvoiceAndClose(prNumber) {
     
     // Save to sheet
     try {
-        await fetch(CONFIG.APPS_SCRIPT_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                action: 'updatePR',
-                prNumber: prNumber,
-                updates: {
-                    status: 'Closed',
-                    invoiceNumber: invoiceNumber,
-                    finalAmount: finalAmount,
-                    receivedDate: pr.receivedDate
-                }
-            })
+        await supabaseAction('updatePR', {
+            prNumber: prNumber,
+            updates: {
+                status: 'Closed',
+                invoiceNumber: invoiceNumber,
+                finalAmount: finalAmount,
+                receivedDate: pr.receivedDate
+            }
         });
     } catch (e) {
         console.error('Error saving invoice:', e);
@@ -3009,17 +2903,6 @@ async function loadDailyLogData() {
         });
         const csvText = await response.text();
         let rows = parseCSV(csvText);
-
-        // Netlify CSV endpoint may return only header (invalid gid/no data). Fallback to Apps Script JSON.
-        if (!rows || rows.length <= 1) {
-            const fallback = await fetch(CONFIG.APPS_SCRIPT_URL + '?action=dailyLog&_=' + Date.now(), {
-                cache: 'no-store'
-            });
-            const jsonRows = await fallback.json();
-            if (Array.isArray(jsonRows) && jsonRows.length > 0) {
-                rows = jsonRows;
-            }
-        }
 
         dailyLogData = mapDailyLogRows(rows);
         applyDailyLogFilters();
@@ -3300,12 +3183,7 @@ async function createCheckout(e) {
                 notes: [`Qty: ${item.qty}`, baseNotes].filter(Boolean).join(' | ')
             };
 
-            await fetch(CONFIG.APPS_SCRIPT_URL + '?action=createDailyLog', {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(checkoutData)
-            });
+            await supabaseAction('createDailyLog', checkoutData);
         }
 
         showToast(`? Checkout created for ${checkoutDraftItems.length} item(s)!`, 'success');
@@ -3332,16 +3210,11 @@ async function handoverItem(logId) {
     try {
         showToast('Updating...', 'success');
         
-        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=updateDailyLog', {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                logId: logId,
-                status: 'Handed Over',
-                handedOverBy: handedBy,
-                handoverDate: today
-            })
+        await supabaseAction('updateDailyLog', {
+            logId: logId,
+            status: 'Handed Over',
+            handedOverBy: handedBy,
+            handoverDate: today
         });
         
         showToast('🤝 Item handed over!', 'success');
@@ -3362,15 +3235,10 @@ async function returnItem(logId) {
     try {
         showToast('Updating...', 'success');
         
-        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=updateDailyLog', {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                logId: logId,
-                status: 'Returned',
-                returnDate: today
-            })
+        await supabaseAction('updateDailyLog', {
+            logId: logId,
+            status: 'Returned',
+            returnDate: today
         });
         
         showToast('✅ Item returned!', 'success');
@@ -3390,14 +3258,9 @@ async function deleteDailyLog(logId) {
     try {
         showToast('Deleting log...', 'success');
 
-        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=updateDailyLog', {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                logId: logId,
-                status: 'Deleted'
-            })
+        await supabaseAction('updateDailyLog', {
+            logId: logId,
+            status: 'Deleted'
         });
 
         let removed = false;
@@ -3775,12 +3638,7 @@ async function createBuild(e) {
         const action = isEditing ? 'updateBuild' : 'createBuild';
         showToast(isEditing ? 'Updating build...' : 'Creating build...', 'success');
         
-        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=' + action, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(buildPayload)
-        });
+        await supabaseAction(action, buildPayload);
         
         showToast(`✅ Build ${buildId} ${isEditing ? 'updated' : 'created'}!`, 'success');
         
@@ -3955,18 +3813,13 @@ async function completeBuild(buildId) {
     try {
         showToast('Completing build...', 'success');
         
-        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=completeBuild', {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                buildId: buildId,
-                productName: build.productName,
-                targetCategory: build.targetCategory,
-                estValue: build.estValue,
-                description: build.description,
-                completedDate: today
-            })
+        await supabaseAction('completeBuild', {
+            buildId: buildId,
+            productName: build.productName,
+            targetCategory: build.targetCategory,
+            estValue: build.estValue,
+            description: build.description,
+            completedDate: today
         });
         
         showToast('✅ Build completed! New item created.', 'success');
@@ -3995,12 +3848,7 @@ async function cancelBuild(buildId) {
     try {
         showToast('Cancelling build...', 'success');
         
-        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=cancelBuild', {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ buildId: buildId })
-        });
+        await supabaseAction('cancelBuild', { buildId: buildId });
         
         showToast('Build cancelled. Components restored.', 'success');
         
@@ -4047,46 +3895,18 @@ switchView = function(viewName) {
 
 let employeesData = [];
 let employeeAssetsData = [];
+let selectedAssignAssetItem = null;
 
 async function loadEmployeesData() {
     try {
-        const response = await fetch(CONFIG.APPS_SCRIPT_URL + '?action=employees');
+        const response = await fetch(CONFIG.EMPLOYEES_URL + '?_=' + Date.now(), { cache: 'no-store' });
         const data = await response.json();
-        employeesData = data.length > 0 ? data.slice(1).map(row => ({
-            empId: row[0],
-            name: row[1],
-            department: row[2],
-            role: row[3],
-            joinDate: row[4],
-            phone: row[5],
-            email: row[6],
-            createdAt: row[7]
-        })) : [];
-        
-        try {
-            const assetsResponse = await fetch(CONFIG.APPS_SCRIPT_URL + '?action=employeeAssets');
-            const assetsData = await assetsResponse.json();
-            console.log('Employee Assets Data:', assetsData);
-            
-            if (Array.isArray(assetsData) && assetsData.length > 1) {
-                employeeAssetsData = assetsData.slice(1).map(row => ({
-                    id: row[0],
-                    empId: row[1],
-                    itemId: row[2],
-                    itemName: row[3],
-                    serialNo: row[4],
-                    assignedDate: row[5] ? row[5].split('T')[0] : '',
-                    returnedDate: row[6] ? row[6].split('T')[0] : '',
-                    status: row[7],
-                    notes: row[8]
-                }));
-            } else {
-                employeeAssetsData = [];
-            }
-        } catch (err) {
-            console.error('Error loading employee assets:', err);
-            employeeAssetsData = [];
+        if (!response.ok || data.success === false) {
+            throw new Error(data.error || 'Failed to load employees');
         }
+
+        employeesData = Array.isArray(data.employees) ? data.employees : [];
+        employeeAssetsData = Array.isArray(data.assets) ? data.assets : [];
         
         updateEmployeeStats();
     } catch (error) {
@@ -4169,12 +3989,7 @@ async function addEmployee(event) {
     try {
         showToast('Adding employee...', 'success');
         
-        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=addEmployee', {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(empData)
-        });
+        await supabaseAction('addEmployee', empData);
         
         showToast('✅ Employee added!', 'success');
         
@@ -4219,7 +4034,10 @@ function viewEmployeeDetail(empId) {
                         📅 Joined: ${emp.joinDate || 'Not set'}
                     </p>
                 </div>
-                <button class="btn-primary" onclick="openAssignAsset('${empId}')">+ Assign Asset</button>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn-primary" onclick="openAssignAsset('${empId}')">+ Assign Asset</button>
+                    <button class="btn-danger" onclick="deleteEmployee('${empId}')">Delete Employee</button>
+                </div>
             </div>
         </div>
         
@@ -4299,13 +4117,10 @@ function openAssignAsset(empId) {
         `<option value="${emp.empId}" ${emp.empId === empId ? 'selected' : ''}>${emp.name} - ${emp.department}</option>`
     ).join('');
     
-    // Popate available items (status = Available)
-    const availableItems = inventoryData.filter(item => item.status === 'Available');
-    const itemSelect = document.getElementById('assignItemId');
-    itemSelect.innerHTML = '<option value="">Select Available Asset</option>' + 
-        availableItems.map(item => 
-            `<option value="${item.itemId}" data-name="${item.name}" data-category="${item.category}" data-value="${item.value}">${item.name} (${item.category})</option>`
-        ).join('');
+    selectedAssignAssetItem = null;
+    document.getElementById('assignItemId').value = '';
+    document.getElementById('assignItemSearch').value = '';
+    hideAssignAssetResults();
     
     document.getElementById('assignDate').value = new Date().toISOString().split('T')[0];
     document.getElementById('assetPreview').style.display = 'none';
@@ -4313,7 +4128,7 @@ function openAssignAsset(empId) {
     switchView('addAssetToEmployee');
 }
 
-function updateAssetDetails() {
+function legacyUpdateAssetDetails() {
     const select = document.getElementById('assignItemId');
     const option = select.options[select.selectedIndex];
     
@@ -4329,12 +4144,19 @@ function updateAssetDetails() {
 
 async function assignAssetToEmployee(event) {
     event.preventDefault();
+    const itemId = document.getElementById('assignItemId').value;
+    const item = selectedAssignAssetItem || inventoryData.find(i => i.itemId === itemId);
+
+    if (!item) {
+        showToast('Please select an asset from the search results', 'error');
+        return;
+    }
     
     const assetData = {
         id: 'EA-' + Date.now(),
         empId: document.getElementById('assignEmpId').value,
-        itemId: document.getElementById('assignItemId').value,
-        itemName: document.getElementById('assignItemId').options[document.getElementById('assignItemId').selectedIndex].text.split(' (')[0],
+        itemId: item.itemId,
+        itemName: item.name,
         serialNo: document.getElementById('assignSerialNo').value,
         assignedDate: document.getElementById('assignDate').value,
         notes: document.getElementById('assignNotes').value,
@@ -4344,17 +4166,13 @@ async function assignAssetToEmployee(event) {
     try {
         showToast('Assigning asset...', 'success');
         
-        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=assignAsset', {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(assetData)
-        });
+        await supabaseAction('assignAsset', assetData);
         
         showToast('✅ Asset assigned!', 'success');
         
         setTimeout(async () => {
             document.getElementById('assignAssetForm').reset();
+            selectedAssignAssetItem = null;
             await loadEmployeesData();
             await loadData();
             viewEmployeeDetail(currentEmployeeId);
@@ -4372,14 +4190,9 @@ async function returnAsset(assetId) {
     try {
         showToast('Processing return...', 'success');
         
-        await fetch(CONFIG.APPS_SCRIPT_URL + '?action=returnAsset', {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                id: assetId,
-                returnedDate: new Date().toISOString().split('T')[0]
-            })
+        await supabaseAction('returnAsset', {
+            id: assetId,
+            returnedDate: new Date().toISOString().split('T')[0]
         });
         
         showToast('✅ Asset returned!', 'success');
@@ -4393,6 +4206,111 @@ async function returnAsset(assetId) {
     } catch (error) {
         console.error('Error returning asset:', error);
         showToast('Failed to return asset', 'error');
+    }
+}
+
+function getAssignableItems() {
+    return inventoryData.filter(item => item.status === 'Available');
+}
+
+function filterAssignAssetItems() {
+    const searchEl = document.getElementById('assignItemSearch');
+    const resultsEl = document.getElementById('assignItemResults');
+    if (!searchEl || !resultsEl) return;
+
+    const query = searchEl.value.trim().toLowerCase();
+    if (selectedAssignAssetItem && searchEl.value !== `${selectedAssignAssetItem.name} (${selectedAssignAssetItem.itemId})`) {
+        selectedAssignAssetItem = null;
+        document.getElementById('assignItemId').value = '';
+        updateAssetDetails();
+    }
+
+    const items = getAssignableItems()
+        .filter(item => {
+            if (!query) return true;
+            return [item.itemId, item.name, item.category, item.location]
+                .some(value => String(value || '').toLowerCase().includes(query));
+        })
+        .slice(0, 30);
+
+    if (items.length === 0) {
+        resultsEl.innerHTML = '<div class="asset-search-empty">No available assets found</div>';
+        resultsEl.classList.add('active');
+        return;
+    }
+
+    resultsEl.innerHTML = items.map(item => `
+        <button type="button" class="asset-search-option" onclick="selectAssignAsset('${escapeHtml(item.itemId)}')">
+            <span class="asset-search-name">${escapeHtml(item.name)}</span>
+            <span class="asset-search-meta">${escapeHtml(item.itemId)} - ${escapeHtml(item.category)} - Qty ${escapeHtml(item.quantity)}</span>
+        </button>
+    `).join('');
+    resultsEl.classList.add('active');
+}
+
+function showAssignAssetResults() {
+    filterAssignAssetItems();
+}
+
+function hideAssignAssetResults() {
+    const resultsEl = document.getElementById('assignItemResults');
+    if (resultsEl) resultsEl.classList.remove('active');
+}
+
+function selectAssignAsset(itemId) {
+    const item = inventoryData.find(i => i.itemId === itemId);
+    if (!item) return;
+
+    selectedAssignAssetItem = item;
+    document.getElementById('assignItemId').value = item.itemId;
+    document.getElementById('assignItemSearch').value = `${item.name} (${item.itemId})`;
+    document.getElementById('assignItemResults').classList.remove('active');
+    updateAssetDetails();
+}
+
+document.addEventListener('click', (event) => {
+    const group = document.querySelector('.asset-search-group');
+    if (group && !group.contains(event.target)) {
+        hideAssignAssetResults();
+    }
+});
+
+function updateAssetDetails() {
+    const itemId = document.getElementById('assignItemId')?.value;
+    const item = selectedAssignAssetItem || inventoryData.find(i => i.itemId === itemId);
+    
+    if (item) {
+        document.getElementById('assetPreview').style.display = 'block';
+        document.getElementById('previewAssetName').textContent = item.name;
+        document.getElementById('previewAssetCategory').textContent = item.category;
+        document.getElementById('previewAssetValue').textContent = '₹' + (item.value || '0');
+    } else {
+        document.getElementById('assetPreview').style.display = 'none';
+    }
+}
+
+async function deleteEmployee(empId) {
+    const emp = employeesData.find(e => e.empId === empId);
+    if (!emp) return;
+
+    const activeAssets = employeeAssetsData.filter(a => a.empId === empId && a.status === 'Active').length;
+    const message = activeAssets > 0
+        ? `Delete ${emp.name}? ${activeAssets} active asset(s) will be marked Available.`
+        : `Delete ${emp.name}?`;
+    if (!confirm(message)) return;
+
+    try {
+        showToast('Deleting employee...', 'success');
+        await supabaseAction('deleteEmployee', { empId });
+        showToast('Employee deleted.', 'success');
+        currentEmployeeId = null;
+        await loadEmployeesData();
+        await loadData();
+        switchView('employeeAssets');
+        renderEmployees();
+    } catch (error) {
+        console.error('Error deleting employee:', error);
+        showToast('Failed to delete employee', 'error');
     }
 }
 
@@ -4476,14 +4394,7 @@ async function deleteDC(dcNumber) {
         }
 
         if (hardDeleteError) {
-            // Fallback for environments without Google service-account credentials:
-            // mark as Deleted using existing Apps Script status endpoint.
-            await fetch(CONFIG.APPS_SCRIPT_URL + '?action=updateDCStatus', {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ dcNumber: dcNumber, status: 'Deleted' })
-            });
+            await supabaseAction('updateDCStatus', { dcNumber: dcNumber, status: 'Deleted' });
         }
 
         // no-cors hides errors, so verify by reloading DC list.

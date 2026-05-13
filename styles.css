@@ -562,6 +562,68 @@ body {
     border-color: var(--primary);
 }
 
+.asset-search-group {
+    position: relative;
+}
+
+.asset-search-results {
+    display: none;
+    position: absolute;
+    z-index: 30;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    max-height: 280px;
+    overflow-y: auto;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow);
+}
+
+.asset-search-results.active {
+    display: block;
+}
+
+.asset-search-option {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 12px;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-primary);
+    text-align: left;
+    cursor: pointer;
+}
+
+.asset-search-option:last-child {
+    border-bottom: 0;
+}
+
+.asset-search-option:hover,
+.asset-search-option:focus {
+    background: var(--bg-hover);
+    outline: none;
+}
+
+.asset-search-name {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.asset-search-meta,
+.asset-search-empty {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.asset-search-empty {
+    padding: 12px;
+}
+
 .form-actions {
     display: flex;
     gap: 12px;
