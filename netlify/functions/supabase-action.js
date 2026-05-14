@@ -23,6 +23,10 @@ function filterEq(value) {
   return `eq.${encodeFilterValue(value)}`;
 }
 
+function normalizeLookupValue(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
 function inventoryRow(data) {
   return {
     'Item ID': data.itemId || '',
@@ -160,6 +164,60 @@ async function getEmployeeByEmployeeId(employeeId) {
   return Array.isArray(rows) ? rows[0] : null;
 }
 
+async function findInventoryRowsByItemId(itemId) {
+  const normalizedItemId = normalizeLookupValue(itemId);
+  if (!normalizedItemId) return [];
+
+  const exactRows = await select('items', { filters: { 'Item ID': filterEq(normalizedItemId) } });
+  const exactMatches = (Array.isArray(exactRows) ? exactRows : []).filter(row =>
+    normalizeLookupValue(row?.['Item ID']) === normalizedItemId
+  );
+
+  if (exactMatches.length > 0) {
+    return exactMatches;
+  }
+
+  const allRows = await select('items');
+  return (Array.isArray(allRows) ? allRows : []).filter(row =>
+    normalizeLookupValue(row?.['Item ID']) === normalizedItemId
+  );
+}
+
+async function deleteInventoryItemByItemId(itemId) {
+  const normalizedItemId = normalizeLookupValue(itemId);
+  if (!normalizedItemId) {
+    throw new Error('Missing itemId for delete');
+  }
+
+  const matchingRows = await findInventoryRowsByItemId(normalizedItemId);
+  if (matchingRows.length === 0) {
+    throw new Error(`Item not found: ${normalizedItemId}`);
+  }
+
+  const rawItemIds = [...new Set(
+    matchingRows
+      .map(row => String(row?.['Item ID'] ?? ''))
+      .filter(Boolean)
+  )];
+
+  let deletedCount = 0;
+  for (const rawItemId of rawItemIds) {
+    const deletedRows = await remove('items', { 'Item ID': filterEq(rawItemId) });
+    deletedCount += Array.isArray(deletedRows) ? deletedRows.length : 0;
+  }
+
+  const remainingRows = await findInventoryRowsByItemId(normalizedItemId);
+  if (remainingRows.length > 0) {
+    throw new Error(`Delete did not remove item ${normalizedItemId}`);
+  }
+
+  return {
+    success: true,
+    deletedCount: deletedCount || matchingRows.length,
+    itemId: normalizedItemId
+  };
+}
+
 function buildRow(data, existing = {}) {
   return {
     'Build ID': data.buildId || existing['Build ID'] || '',
@@ -230,9 +288,7 @@ async function handleAction(action, data) {
   }
 
   if (action === 'delete') {
-    if (!data.itemId) throw new Error('Missing itemId for delete');
-    await remove('items', { 'Item ID': filterEq(data.itemId) });
-    return { success: true };
+    return deleteInventoryItemByItemId(data.itemId);
   }
 
   if (action === 'updateItemsStatus') {

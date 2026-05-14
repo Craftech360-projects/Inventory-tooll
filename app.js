@@ -60,6 +60,26 @@ const STATUS_COLORS = {
     'Dead Stock': '#64748b'
 };
 
+const INVENTORY_PARSE_CATEGORIES = [
+    'Mechanical Division',
+    'Electronic Components',
+    'Rented Equipment',
+    'Event Equipment',
+    'Office Assets',
+    'Office Asset',
+    'IT Assets',
+    'Electronics',
+    'Dead Stock'
+];
+
+const INVENTORY_PARSE_STATUSES = [
+    'Checked Out',
+    'Maintenance',
+    'Available',
+    'Dead Stock',
+    'In Use'
+];
+
 const SUB_CATEGORIES = {
     'IT Assets': [
         'Laptops',
@@ -229,6 +249,161 @@ function normalizeRow(rawRow) {
     return Array.isArray(rawRow) ? rawRow : [];
 }
 
+function normalizeInventoryCategory(category) {
+    const value = String(category || '').trim();
+    const categoryAliases = {
+        'Office Asset': 'Office Assets',
+        'Electronic Components': 'Electronics'
+    };
+
+    return categoryAliases[value] || value;
+}
+
+function isInventoryIdToken(value) {
+    return /^[A-Z]{2,4}-\d+$/i.test(String(value || '').trim());
+}
+
+function isInventoryValueToken(value) {
+    return /^-?\d+(?:\.\d+)?$/.test(String(value || '').trim()) || /^tbd$/i.test(String(value || '').trim());
+}
+
+function isKnownInventoryCategory(value) {
+    return Boolean(CATEGORY_PREFIXES[normalizeInventoryCategory(value)]);
+}
+
+function isKnownInventoryStatus(value) {
+    return INVENTORY_PARSE_STATUSES.includes(String(value || '').trim());
+}
+
+function isStructuredInventoryRow(row) {
+    const normalized = normalizeRow(row);
+    return (
+        isInventoryIdToken(normalized[0]) &&
+        String(normalized[1] || '').trim() !== '' &&
+        isKnownInventoryCategory(normalized[2]) &&
+        /^\d+$/.test(String(normalized[4] || '').trim()) &&
+        isKnownInventoryStatus(normalized[5])
+    );
+}
+
+function findTokenPhrase(tokens, phrases, startIndex = 0) {
+    const phraseTokens = phrases
+        .map(phrase => ({ phrase, parts: phrase.split(' ') }))
+        .sort((a, b) => b.parts.length - a.parts.length);
+
+    for (let i = startIndex; i < tokens.length; i++) {
+        for (const option of phraseTokens) {
+            const candidate = tokens.slice(i, i + option.parts.length).join(' ');
+            if (candidate === option.phrase) {
+                return {
+                    phrase: option.phrase,
+                    start: i,
+                    end: i + option.parts.length - 1
+                };
+            }
+        }
+    }
+
+    return null;
+}
+
+function parseInventoryRowText(rawValue) {
+    if (!rawValue) {
+        return null;
+    }
+
+    const tokens = rawValue.split(' ');
+    if (!isInventoryIdToken(tokens[0])) {
+        return null;
+    }
+
+    const categoryMatch = findTokenPhrase(tokens, INVENTORY_PARSE_CATEGORIES, 1);
+    if (!categoryMatch) {
+        return null;
+    }
+
+    const statusMatch = findTokenPhrase(tokens, INVENTORY_PARSE_STATUSES, categoryMatch.end + 1);
+    if (!statusMatch || statusMatch.start < 2) {
+        return null;
+    }
+
+    const quantityToken = tokens[statusMatch.start - 1];
+    if (!/^\d+$/.test(quantityToken)) {
+        return null;
+    }
+
+    const itemId = tokens[0];
+    const name = tokens.slice(1, categoryMatch.start).join(' ').trim();
+    if (!name) {
+        return null;
+    }
+
+    const subCategory = tokens.slice(categoryMatch.end + 1, statusMatch.start - 1).join(' ').trim();
+    const remainingTokens = tokens.slice(statusMatch.end + 1);
+    const dateIndex = remainingTokens.findIndex(token => /^\d{4}-\d{2}-\d{2}$/.test(token));
+
+    let leadingTokens = remainingTokens;
+    let addedDate = '';
+    let notes = '';
+
+    if (dateIndex !== -1) {
+        leadingTokens = remainingTokens.slice(0, dateIndex);
+        addedDate = remainingTokens[dateIndex];
+        notes = remainingTokens.slice(dateIndex + 1).join(' ').trim();
+    }
+
+    let value = '';
+    if (leadingTokens.length > 1 && isInventoryValueToken(leadingTokens[leadingTokens.length - 1])) {
+        value = leadingTokens.pop();
+    }
+
+    return [
+        itemId,
+        name,
+        normalizeInventoryCategory(categoryMatch.phrase),
+        subCategory,
+        quantityToken,
+        statusMatch.phrase,
+        leadingTokens.join(' ').trim(),
+        value,
+        addedDate,
+        notes,
+        '',
+        '',
+        '',
+        '',
+        '',
+        ''
+    ];
+}
+
+function repairCollapsedInventoryRow(row) {
+    const normalized = normalizeRow(row);
+    if (isStructuredInventoryRow(normalized)) {
+        return normalized;
+    }
+
+    const populatedCells = normalized.filter(cell => String(cell ?? '').trim() !== '');
+    if (populatedCells.length === 0) {
+        return normalized;
+    }
+
+    const rawValue = populatedCells
+        .map(cell => String(cell ?? '').trim())
+        .filter(Boolean)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const repairedRow = parseInventoryRowText(rawValue);
+    if (!repairedRow) {
+        return normalized;
+    }
+
+    console.warn('Recovered malformed inventory row:', repairedRow);
+    return repairedRow;
+}
+
 function hasInventoryHeader(row) {
     const firstCell = String(row?.[0] || '').toLowerCase().trim();
     const secondCell = String(row?.[1] || '').toLowerCase().trim();
@@ -242,7 +417,7 @@ function mapRowsToInventoryItems(rows) {
     const items = [];
 
     for (let i = startIndex; i < rows.length; i++) {
-        const row = normalizeRow(rows[i]);
+        const row = repairCollapsedInventoryRow(rows[i]);
         const itemId = String(row[0] || '').trim();
 
         if (!itemId) continue;
@@ -251,7 +426,7 @@ function mapRowsToInventoryItems(rows) {
             rowIndex: i + 1,
             itemId,
             name: row[1] || '',
-            category: row[2] || '',
+            category: normalizeInventoryCategory(row[2] || ''),
             subCategory: row[3] || '',
             quantity: parseInt(row[4], 10) || 0,
             status: row[5] || 'Available',
@@ -442,6 +617,9 @@ function updateInventoryTable() {
         tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px; color: var(--text-muted);">No items found</td></tr>';
         return;
     }
+
+    tbody.innerHTML = filteredData.map(renderInventoryTableRow).join('');
+    return;
     
     tbody.innerHTML = filteredData.map(item => `
         <tr>
@@ -455,6 +633,28 @@ function updateInventoryTable() {
             <td><button class="action-btn" onclick="editItem(${item.rowIndex})">✏️ Edit</button></td>
         </tr>
     `).join('');
+}
+
+function renderInventoryTableRow(item) {
+    const statusText = String(item.status || 'Available').trim() || 'Available';
+    const statusClass = statusText
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+    const value = Number(item.value) || 0;
+
+    return `
+        <tr>
+            <td><code>${escapeHtml(item.itemId)}</code></td>
+            <td>${escapeHtml(item.name)}</td>
+            <td>${CATEGORY_ICONS[item.category] || '\u{1F4E6}'} ${escapeHtml(item.category)}</td>
+            <td>${escapeHtml(item.quantity)}</td>
+            <td><span class="status-badge status-${statusClass}">${escapeHtml(statusText)}</span></td>
+            <td>${escapeHtml(item.location || '-')}</td>
+            <td>&#8377;${value.toLocaleString('en-IN')}</td>
+            <td><button class="action-btn" onclick="editItem(${Number(item.rowIndex) || 0})">&#9998; Edit</button></td>
+        </tr>
+    `;
 }
 
 // Update Categories View
@@ -682,21 +882,37 @@ async function saveEdit(e) {
 async function deleteItem() {
     const rowIndex = document.getElementById('editRowIndex').value;
     const item = inventoryData.find(i => i.rowIndex == rowIndex);
+    const itemId = String(document.getElementById('editItemId')?.value || item?.itemId || '').replace(/\s+/g, ' ').trim();
     
     if (!confirm('Are you sure you want to delete this item?')) {
+        return;
+    }
+
+    if (!itemId) {
+        showToast('Missing item ID for delete', 'error');
         return;
     }
     
     try {
         showToast('Deleting item...', 'success');
         
-        await supabaseAction('delete', { itemId: item?.itemId });
+        await supabaseAction('delete', { itemId: itemId });
+
+        inventoryData = inventoryData.filter(i =>
+            String(i.itemId || '').replace(/\s+/g, ' ').trim() !== itemId
+        );
+        filteredData = filteredData.filter(i =>
+            String(i.itemId || '').replace(/\s+/g, ' ').trim() !== itemId
+        );
+        updateDashboard();
+        updateInventoryTable();
+        updateCategoriesView();
         
         closeModal();
         showToast('✅ Item deleted successfully!', 'success');
         
-        // Reload data after short delay
-        setTimeout(() => loadData(), 1500);
+        // Sync fresh data after local UI update.
+        setTimeout(() => loadData(), 500);
         
     } catch (error) {
         console.error('Error deleting item:', error);
