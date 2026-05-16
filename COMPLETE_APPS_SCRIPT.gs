@@ -402,25 +402,6 @@ function doPost(e) {
     
     // ==================== EMPLOYEES ====================
     
-    else if (action === 'addEmployee') {
-      let empSheet = ss.getSheetByName('Employees');
-      if (!empSheet) {
-        empSheet = ss.insertSheet('Employees');
-        empSheet.appendRow(['empId', 'name', 'department', 'role', 'joinDate', 'phone', 'email', 'createdAt']);
-      }
-      empSheet.appendRow([
-        data.empId,
-        data.name,
-        data.department,
-        data.role || '',
-        data.joinDate || '',
-        data.phone || '',
-        data.email || '',
-        data.createdAt || new Date().toISOString()
-      ]);
-      result = { success: true, message: 'Employee added' };
-    }
-    
     else if (action === 'assignAsset') {
       let eaSheet = ss.getSheetByName('EmployeeAssets');
       if (!eaSheet) {

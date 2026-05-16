@@ -4154,8 +4154,7 @@ function renderEmployees() {
             <div class="empty-state">
                 <div style="font-size: 48px; margin-bottom: 16px;">👥</div>
                 <h3>No Employees Found</h3>
-                <p>Add employees to track their company assets</p>
-                <button class="btn-primary" onclick="switchView('addEmployee')">+ Add First Employee</button>
+                <p>No matching employees were found in the employees table.</p>
             </div>
         `;
         return;
@@ -4186,39 +4185,6 @@ function renderEmployees() {
 
 function filterEmployees() {
     renderEmployees();
-}
-
-async function addEmployee(event) {
-    event.preventDefault();
-    
-    const empData = {
-        empId: 'EMP-' + Date.now(),
-        name: document.getElementById('empName').value,
-        department: document.getElementById('empDepartment').value,
-        role: document.getElementById('empRole').value,
-        joinDate: document.getElementById('empJoinDate').value,
-        phone: document.getElementById('empPhone').value,
-        email: document.getElementById('empEmail').value,
-        createdAt: new Date().toLocaleString('en-IN')
-    };
-    
-    try {
-        showToast('Adding employee...', 'success');
-        
-        await supabaseAction('addEmployee', empData);
-        
-        showToast('✅ Employee added!', 'success');
-        
-        setTimeout(() => {
-            document.getElementById('addEmployeeForm').reset();
-            loadEmployeesData();
-            switchView('employeeAssets');
-        }, 1500);
-        
-    } catch (error) {
-        console.error('Error adding employee:', error);
-        showToast('Failed to add employee', 'error');
-    }
 }
 
 let currentEmployeeId = null;
@@ -4252,7 +4218,6 @@ function viewEmployeeDetail(empId) {
                 </div>
                 <div style="display: flex; gap: 8px;">
                     <button class="btn-primary" onclick="openAssignAsset('${empId}')">+ Assign Asset</button>
-                    <button class="btn-danger" onclick="deleteEmployee('${empId}')">Delete Employee</button>
                 </div>
             </div>
         </div>
@@ -4279,7 +4244,6 @@ function viewEmployeeDetail(empId) {
                     <tr>
                         <th style="padding: 12px; text-align: left; font-size: 13px; color: #64748b;">Product Name</th>
                         <th style="padding: 12px; text-align: left; font-size: 13px; color: #64748b;">Assigned Date</th>
-                        <th style="padding: 12px; text-align: left; font-size: 13px; color: #64748b;">Return Date</th>
                         <th style="padding: 12px; text-align: right; font-size: 13px; color: #64748b;">Action</th>
                     </tr>
                 </thead>
@@ -4288,7 +4252,6 @@ function viewEmployeeDetail(empId) {
                         <tr style="border-bottom: 1px solid #f1f5f9;">
                             <td style="padding: 12px; font-weight: 500;">${asset.itemName}</td>
                             <td style="padding: 12px; color: #64748b;">${asset.assignedDate || '-'}</td>
-                            <td style="padding: 12px; color: #64748b;">${asset.returnedDate || '-'}</td>
                             <td style="padding: 12px; text-align: right;">
                                 <button class="btn-secondary" onclick="returnAsset('${asset.id}')" style="padding: 4px 10px; font-size: 12px;">↩️ Return</button>
                             </td>
@@ -4401,14 +4364,28 @@ async function assignAssetToEmployee(event) {
 }
 
 async function returnAsset(assetId) {
-    if (!confirm('Mark this asset as returned?')) return;
+    const today = new Date().toISOString().split('T')[0];
+    const returnedDate = prompt('Enter return date (YYYY-MM-DD)', today);
+    if (returnedDate === null) return;
+
+    if (!returnedDate) {
+        showToast('Please select a return date', 'error');
+        return;
+    }
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(returnedDate) || Number.isNaN(new Date(returnedDate).getTime())) {
+        showToast('Please enter a valid date in YYYY-MM-DD format', 'error');
+        return;
+    }
+
+    if (!confirm(`Mark this asset as returned on ${returnedDate}?`)) return;
     
     try {
         showToast('Processing return...', 'success');
         
         await supabaseAction('returnAsset', {
             id: assetId,
-            returnedDate: new Date().toISOString().split('T')[0]
+            returnedDate
         });
         
         showToast('✅ Asset returned!', 'success');
@@ -4505,31 +4482,6 @@ function updateAssetDetails() {
     }
 }
 
-async function deleteEmployee(empId) {
-    const emp = employeesData.find(e => e.empId === empId);
-    if (!emp) return;
-
-    const activeAssets = employeeAssetsData.filter(a => a.empId === empId && a.status === 'Active').length;
-    const message = activeAssets > 0
-        ? `Delete ${emp.name}? ${activeAssets} active asset(s) will be marked Available.`
-        : `Delete ${emp.name}?`;
-    if (!confirm(message)) return;
-
-    try {
-        showToast('Deleting employee...', 'success');
-        await supabaseAction('deleteEmployee', { empId });
-        showToast('Employee deleted.', 'success');
-        currentEmployeeId = null;
-        await loadEmployeesData();
-        await loadData();
-        switchView('employeeAssets');
-        renderEmployees();
-    } catch (error) {
-        console.error('Error deleting employee:', error);
-        showToast('Failed to delete employee', 'error');
-    }
-}
-
 function goBackToEmployeeDetail() {
     if (currentEmployeeId) {
         viewEmployeeDetail(currentEmployeeId);
@@ -4571,7 +4523,6 @@ switchView = function(viewName) {
     // Update title for Employee views
     const empTitles = {
         employeeAssets: 'Employee Assets',
-        addEmployee: 'Add Employee',
         employeeDetail: 'Employee Details',
         addAssetToEmployee: 'Assign Asset'
     };

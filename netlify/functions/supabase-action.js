@@ -134,27 +134,6 @@ function dailyLogRow(data) {
   };
 }
 
-function employeeRow(data) {
-  const employeeId = data.empId || data.employeeId || `EMP-${Date.now()}`;
-  const email = data.email || `${employeeId.toLowerCase()}@missing-email.local`;
-  return {
-    type: data.type || 'Employee',
-    name: data.name || '',
-    email,
-    date_of_hiring: data.joinDate || null,
-    title: data.role || data.title || '',
-    employee_id: employeeId,
-    department: data.department || '',
-    manager: data.manager || '',
-    location: data.location || '',
-    onboard: {
-      phone: data.phone || '',
-      createdAt: data.createdAt || new Date().toISOString()
-    },
-    asset_assignments: []
-  };
-}
-
 function normalizeEmployeeAssets(employee) {
   return Array.isArray(employee?.asset_assignments) ? employee.asset_assignments : [];
 }
@@ -389,27 +368,6 @@ async function handleAction(action, data) {
     if (data.handoverDate) row['Handover Date'] = data.handoverDate;
     if (data.returnDate) row['Return Date'] = data.returnDate;
     await updateById('daily_logs', 'Log ID', data.logId, row);
-    return { success: true };
-  }
-
-  if (action === 'addEmployee') {
-    const row = employeeRow(data);
-    await insert('employees', row);
-    return { success: true, empId: row.employee_id };
-  }
-
-  if (action === 'deleteEmployee') {
-    const employee = await getEmployeeByEmployeeId(data.empId);
-    if (!employee) throw new Error('Employee not found');
-
-    const activeAssets = normalizeEmployeeAssets(employee).filter(asset => asset.status === 'Active');
-    for (const asset of activeAssets) {
-      if (asset.itemId) {
-        await updateById('items', 'Item ID', asset.itemId, { Status: 'Available' });
-      }
-    }
-
-    await remove('employees', { employee_id: filterEq(data.empId) });
     return { success: true };
   }
 

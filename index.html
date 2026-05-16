@@ -659,7 +659,6 @@
                     <div class="filter-group">
                         <input type="text" id="employeeSearch" placeholder="Search employees..." onkeyup="filterEmployees()" style="padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px; width: 250px;">
                     </div>
-                    <button class="btn-primary" onclick="switchView('addEmployee')">+ Add Employee</button>
                 </div>
                 
                 <div class="employee-stats" style="display: flex; gap: 20px; margin-bottom: 20px;">
@@ -679,53 +678,6 @@
 
                 <div id="employeesList" class="employees-list">
                     <!-- Employee cards will be loaded here -->
-                </div>
-            </section>
-
-            <!-- Add Employee View -->
-            <section id="addEmployeeView" class="view">
-                <div class="card form-card">
-                    <h2>&#x1F464; Add New Employee</h2>
-                    <form id="addEmployeeForm" onsubmit="addEmployee(event)">
-                        <div class="form-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
-                            <div class="form-group">
-                                <label>Employee Name *</label>
-                                <input type="text" id="empName" required>
-                            </div>
-                            <div class="form-group">
-                                <label>Department *</label>
-                                <select id="empDepartment" required>
-                                    <option value="">Select Department</option>
-                                    <option value="Software">Software</option>
-                                    <option value="Embedded">Embedded</option>
-                                    <option value="Creative">Creative</option>
-                                    <option value="Business Development">Business Development</option>
-                                    <option value="Operations">Operations</option>
-                                    <option value="HR & Admin">HR & Admin</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label>Role / Designation</label>
-                                <input type="text" id="empRole" placeholder="e.g., Senior Developer">
-                            </div>
-                            <div class="form-group">
-                                <label>Join Date</label>
-                                <input type="date" id="empJoinDate">
-                            </div>
-                            <div class="form-group">
-                                <label>Phone Number</label>
-                                <input type="tel" id="empPhone" placeholder="+91xxxxxxxxxx">
-                            </div>
-                            <div class="form-group">
-                                <label>Email *</label>
-                                <input type="email" id="empEmail" placeholder="name@company.com" required>
-                            </div>
-                        </div>
-                        <div class="form-actions">
-                            <button type="submit" class="btn-primary">&#x1F464; Add Employee</button>
-                            <button type="button" class="btn-secondary" onclick="switchView('employeeAssets')">Cancel</button>
-                        </div>
-                    </form>
                 </div>
             </section>
 
