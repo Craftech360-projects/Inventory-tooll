@@ -5,7 +5,8 @@ const CONFIG = {
     // Using Netlify function to proxy CSV (avoids CORS issues)
     CSV_URL: '/.netlify/functions/get-inventory',
     SUPABASE_ACTION_URL: '/.netlify/functions/supabase-action',
-    EMPLOYEES_URL: '/.netlify/functions/get-employees'
+    EMPLOYEES_URL: '/.netlify/functions/get-employees',
+    VENDORS_URL: '/.netlify/functions/get-vendors'
 };
 
 async function supabaseAction(action, payload = {}) {
@@ -144,11 +145,13 @@ const SUB_CATEGORIES = {
 let inventoryData = [];
 let filteredData = [];
 let isInventoryLoading = false;
+let vendorData = [];
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     console.log('App initialized');
     setupNavigation();
+    loadVendorData();
     loadData();
     
     // Reload data every 30 seconds for testing
@@ -183,7 +186,8 @@ function switchView(viewName) {
         dashboard: 'Dashboard',
         inventory: 'All Items',
         add: 'Add New Item',
-        categories: 'Categories'
+        categories: 'Categories',
+        vendors: 'Vendors'
     };
     document.getElementById('pageTitle').textContent = titles[viewName] || 'Dashboard';
 }
@@ -444,6 +448,178 @@ function mapRowsToInventoryItems(rows) {
     }
 
     return items;
+}
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function mapRowsToVendors(rows) {
+    if (!Array.isArray(rows) || rows.length === 0) return [];
+
+    const firstCell = String(rows[0]?.[0] || '').toLowerCase().trim();
+    const startIndex = firstCell.includes('vendor name') ? 1 : 0;
+
+    return rows.slice(startIndex)
+        .filter(row => String(row[0] || '').trim())
+        .map(row => ({
+            name: row[0] || '',
+            contactNumber: row[1] || '',
+            email: row[2] || '',
+            address: row[3] || '',
+            gstin: row[4] || '',
+            pan: row[5] || '',
+            createdDate: row[6] || ''
+        }));
+}
+
+async function loadVendorData() {
+    try {
+        const response = await fetch(CONFIG.VENDORS_URL + '?_=' + Date.now(), { cache: 'no-store' });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+
+        const text = await response.text();
+        const rows = parseCSV(text);
+        vendorData = mapRowsToVendors(rows);
+        populateVendorSelects();
+        renderVendorTable();
+    } catch (error) {
+        console.warn('Vendor list not available:', error.message);
+        vendorData = [];
+        populateVendorSelects();
+        renderVendorTable('Vendor table is not available yet. Apply the database plan, then refresh.');
+    }
+}
+
+function populateVendorSelects() {
+    const selects = document.querySelectorAll('[data-vendor-select]');
+    selects.forEach(select => {
+        const currentValue = select.value;
+        select.innerHTML = '<option value="">Select Vendor</option>' +
+            vendorData.map(vendor => `<option value="${escapeHtml(vendor.name)}">${escapeHtml(vendor.name)}</option>`).join('');
+
+        if (currentValue && vendorData.some(vendor => vendor.name === currentValue)) {
+            select.value = currentValue;
+        }
+    });
+}
+
+function vendorOptionsHtml(selectedName = '') {
+    const vendorNames = vendorData.map(vendor => vendor.name);
+    const legacyOption = selectedName && !vendorNames.includes(selectedName)
+        ? `<option value="${escapeHtml(selectedName)}" selected>${escapeHtml(selectedName)}</option>`
+        : '';
+
+    return '<option value="">Select Vendor</option>' + legacyOption +
+        vendorData.map(vendor => {
+            const selected = vendor.name === selectedName ? ' selected' : '';
+            return `<option value="${escapeHtml(vendor.name)}"${selected}>${escapeHtml(vendor.name)}</option>`;
+        }).join('');
+}
+
+function setVendorSelectValue(selectId, value) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+
+    if (value && !Array.from(select.options).some(option => option.value === value)) {
+        select.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`);
+    }
+    select.value = value || '';
+}
+
+function getVendorByName(name) {
+    return vendorData.find(vendor => vendor.name === name);
+}
+
+function updateVendorContactFromSelect(selectId, contactInputId) {
+    const select = document.getElementById(selectId);
+    const contactInput = document.getElementById(contactInputId);
+    if (!select || !contactInput) return;
+
+    const vendor = getVendorByName(select.value);
+    contactInput.value = vendor?.contactNumber || '';
+}
+
+function renderVendorTable(message = '') {
+    const tbody = document.getElementById('vendorTableBody');
+    if (!tbody) return;
+
+    if (message) {
+        tbody.innerHTML = `<tr><td colspan="7">${escapeHtml(message)}</td></tr>`;
+        return;
+    }
+
+    if (vendorData.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7">No vendors added yet</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = vendorData.map((vendor, index) => `
+        <tr>
+            <td>${escapeHtml(vendor.name)}</td>
+            <td>${escapeHtml(vendor.contactNumber)}</td>
+            <td>${escapeHtml(vendor.email || '-')}</td>
+            <td>${escapeHtml(vendor.gstin || '-')}</td>
+            <td>${escapeHtml(vendor.pan || '-')}</td>
+            <td>${escapeHtml(vendor.address || '-')}</td>
+            <td>
+                <button type="button" class="action-btn vendor-delete-btn" onclick="deleteVendor(${index})">Delete</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+async function saveVendor(event) {
+    event.preventDefault();
+
+    const vendor = {
+        name: document.getElementById('vendorName').value.trim(),
+        contactNumber: document.getElementById('vendorContactNumber').value.trim(),
+        email: document.getElementById('vendorEmail').value.trim(),
+        address: document.getElementById('vendorAddress').value.trim(),
+        gstin: document.getElementById('vendorGstin').value.trim().toUpperCase(),
+        pan: document.getElementById('vendorPan').value.trim().toUpperCase(),
+        createdDate: new Date().toISOString().split('T')[0]
+    };
+
+    if (!vendor.name || !vendor.contactNumber) {
+        showToast('Please enter vendor name and contact number', 'error');
+        return;
+    }
+
+    try {
+        showToast('Saving vendor...', 'success');
+        await supabaseAction('upsertVendor', vendor);
+        document.getElementById('vendorForm').reset();
+        await loadVendorData();
+        showToast('Vendor saved successfully!', 'success');
+    } catch (error) {
+        console.error('Error saving vendor:', error);
+        showToast('Failed to save vendor: ' + error.message, 'error');
+    }
+}
+
+async function deleteVendor(index) {
+    const vendor = vendorData[index];
+    if (!vendor) return;
+
+    const confirmed = confirm(`Delete vendor "${vendor.name}"? Existing inventory and PR records will keep their saved vendor text.`);
+    if (!confirmed) return;
+
+    try {
+        showToast('Deleting vendor...', 'success');
+        await supabaseAction('deleteVendor', { name: vendor.name });
+        await loadVendorData();
+        showToast('Vendor deleted successfully!', 'success');
+    } catch (error) {
+        console.error('Error deleting vendor:', error);
+        showToast('Failed to delete vendor: ' + error.message, 'error');
+    }
 }
 
 async function fetchCsvRowsWithRetry(maxAttempts = 2) {
@@ -820,7 +996,7 @@ function editItem(rowIndex) {
     // Rental fields
     document.getElementById('editItemReturnDate').value = item.returnDate || '';
     document.getElementById('editItemEventProject').value = item.eventProject || '';
-    document.getElementById('editItemVendorName').value = item.vendorName || '';
+    setVendorSelectValue('editItemVendorName', item.vendorName || '');
     document.getElementById('editItemVendorContact').value = item.vendorContact || '';
     document.getElementById('editItemRentalCost').value = item.rentalCost || 0;
     document.getElementById('editItemDeposit').value = item.deposit || 0;
@@ -2423,7 +2599,9 @@ async function loadPRData() {
                 trackingId: row[20] || '',
                 orderId: row[21] || '',
                 invoiceNumber: row[22] || '',
-                finalAmount: row[23] || ''
+                finalAmount: row[23] || '',
+                piNumber: row[24] || '',
+                piDate: row[25] || ''
             }));
         }
         
@@ -2502,6 +2680,8 @@ async function createPR(event) {
         priority: document.getElementById('prPriority').value,
         neededBy: document.getElementById('prNeededBy').value,
         vendor: document.getElementById('prVendor').value,
+        piNumber: document.getElementById('prPiNumber').value,
+        piDate: document.getElementById('prPiDate').value,
         status: 'Request',
         createdDate: new Date().toISOString().split('T')[0]
     };
@@ -2576,7 +2756,9 @@ function viewPRDetail(prNumber) {
                         </div>
                         <div class="form-group">
                             <label>Vendor Name *</label>
-                            <input type="text" id="pmVendorName" placeholder="Selected vendor" value="${pr.vendor || ''}">
+                            <select id="pmVendorName" data-vendor-select>
+                                ${vendorOptionsHtml(pr.vendor || '')}
+                            </select>
                         </div>
                         <div class="form-group" style="grid-column: span 2;">
                             <label>Quote Notes</label>
@@ -2739,6 +2921,22 @@ function viewPRDetail(prNumber) {
         ${trackingDisplay}
         ${invoiceEditSection}
         ${invoiceDisplay}
+        
+        ${(pr.piNumber || pr.piDate) ? `
+            <div class="pr-detail-section">
+                <h4>Performa Invoice Details</h4>
+                <div class="pr-detail-grid">
+                    <div class="pr-detail-field">
+                        <div class="pr-detail-field-label">PI Number</div>
+                        <div class="pr-detail-field-value">${pr.piNumber || '-'}</div>
+                    </div>
+                    <div class="pr-detail-field">
+                        <div class="pr-detail-field-label">PI Date</div>
+                        <div class="pr-detail-field-value">${pr.piDate || '-'}</div>
+                    </div>
+                </div>
+            </div>
+        ` : ''}
         
         <div class="pr-detail-section">
             <h4>Request Details</h4>
@@ -3001,6 +3199,9 @@ switchView = function(viewName) {
     // Handle PR-specific views
     if (viewName === 'purchaseRequests') {
         loadPRData();
+    }
+    if (viewName === 'vendors') {
+        loadVendorData();
     }
     
     // Call original

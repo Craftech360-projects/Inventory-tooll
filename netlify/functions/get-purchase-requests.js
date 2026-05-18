@@ -24,7 +24,9 @@ const HEADERS = [
   'Tracking ID',
   'Order ID',
   'Invoice Number',
-  'Final Amount'
+  'Final Amount',
+  'PI Number',
+  'PI Date'
 ];
 
 exports.handler = async () => {

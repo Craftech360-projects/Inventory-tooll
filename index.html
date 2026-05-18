@@ -77,6 +77,10 @@
                     <span class="nav-icon">&#x2795;</span>
                     <span>New PR</span>
                 </a>
+                <a href="#" class="nav-item" data-view="vendors">
+                    <span class="nav-icon">&#x1F3E2;</span>
+                    <span>Vendors</span>
+                </a>
             </nav>
             <div class="sidebar-footer">
                 <button class="sync-btn" onclick="loadData()">
@@ -267,11 +271,13 @@
                                     </div>
                                     <div class="form-group">
                                         <label>Vendor Name *</label>
-                                        <input type="text" id="itemVendorName" placeholder="Company/Person name">
+                                        <select id="itemVendorName" onchange="updateVendorContactFromSelect('itemVendorName', 'itemVendorContact')" data-vendor-select>
+                                            <option value="">Select Vendor</option>
+                                        </select>
                                     </div>
                                     <div class="form-group">
-                                        <label>Vendor Contact</label>
-                                        <input type="text" id="itemVendorContact" placeholder="Phone/Email">
+                                        <label>Vendor Contact Number</label>
+                                        <input type="text" id="itemVendorContact" readonly placeholder="Selected vendor contact">
                                     </div>
                                     <div class="form-group">
                                         <label>Rental Cost (&#x20B9;)</label>
@@ -295,6 +301,73 @@
             <!-- Categories View -->
             <section id="categoriesView" class="view">
                 <div class="categories-grid" id="categoriesGrid">
+                </div>
+            </section>
+
+            <!-- Vendors View -->
+            <section id="vendorsView" class="view">
+                <div class="vendor-layout">
+                    <div class="card vendor-form-card">
+                        <h3>Vendor Details</h3>
+                        <form id="vendorForm" onsubmit="saveVendor(event)">
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label>Vendor Name *</label>
+                                    <input type="text" id="vendorName" required placeholder="Company or person name">
+                                </div>
+                                <div class="form-group">
+                                    <label>Vendor Contact Number *</label>
+                                    <input type="tel" id="vendorContactNumber" required placeholder="+91 98765 43210">
+                                </div>
+                                <div class="form-group">
+                                    <label>Email</label>
+                                    <input type="email" id="vendorEmail" placeholder="accounts@vendor.com">
+                                </div>
+                                <div class="form-group">
+                                    <label>GSTIN</label>
+                                    <input type="text" id="vendorGstin" maxlength="15" placeholder="15 digit GSTIN">
+                                </div>
+                                <div class="form-group">
+                                    <label>PAN</label>
+                                    <input type="text" id="vendorPan" maxlength="10" placeholder="10 character PAN">
+                                </div>
+                                <div class="form-group full-width">
+                                    <label>Vendor Address</label>
+                                    <textarea id="vendorAddress" rows="3" placeholder="Billing or office address"></textarea>
+                                </div>
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" class="btn-primary">Save Vendor</button>
+                                <button type="reset" class="btn-secondary">Clear</button>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="card vendor-list-card">
+                        <div class="vendor-list-header">
+                            <h3>Vendor List</h3>
+                            <button class="btn-secondary vendor-refresh-btn" onclick="loadVendorData()">Refresh</button>
+                        </div>
+                        <div class="table-container vendor-table-container">
+                            <table class="inventory-table vendor-table">
+                                <thead>
+                                    <tr>
+                                        <th>Vendor</th>
+                                        <th>Contact</th>
+                                        <th>Email</th>
+                                        <th>GSTIN</th>
+                                        <th>PAN</th>
+                                        <th>Address</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="vendorTableBody">
+                                    <tr>
+                                        <td colspan="7">No vendors loaded</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -535,7 +608,17 @@
                             </div>
                             <div class="form-group">
                                 <label>Suggested Vendor</label>
-                                <input type="text" id="prVendor" placeholder="If known">
+                                <select id="prVendor" data-vendor-select>
+                                    <option value="">Select Vendor</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>PI Number</label>
+                                <input type="text" id="prPiNumber" placeholder="PI-XXXX">
+                            </div>
+                            <div class="form-group">
+                                <label>PI Date</label>
+                                <input type="date" id="prPiDate">
                             </div>
                         </div>
                         
@@ -900,11 +983,13 @@
                             </div>
                             <div class="form-group">
                                 <label>Vendor Name</label>
-                                <input type="text" id="editItemVendorName">
+                                <select id="editItemVendorName" onchange="updateVendorContactFromSelect('editItemVendorName', 'editItemVendorContact')" data-vendor-select>
+                                    <option value="">Select Vendor</option>
+                                </select>
                             </div>
                             <div class="form-group">
-                                <label>Vendor Contact</label>
-                                <input type="text" id="editItemVendorContact">
+                                <label>Vendor Contact Number</label>
+                                <input type="text" id="editItemVendorContact" readonly>
                             </div>
                             <div class="form-group">
                                 <label>Rental Cost (&#x20B9;)</label>

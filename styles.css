@@ -841,7 +841,8 @@ body {
     }
     
     .stats-grid,
-    .categories-grid {
+    .categories-grid,
+    .vendor-layout {
         grid-template-columns: 1fr;
     }
     
@@ -886,6 +887,57 @@ body {
     margin-bottom: 16px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+}
+
+/* Vendors */
+.vendor-layout {
+    display: grid;
+    grid-template-columns: minmax(320px, 460px) 1fr;
+    gap: 20px;
+    align-items: start;
+}
+
+.vendor-form-card,
+.vendor-list-card {
+    max-width: none;
+}
+
+.vendor-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.vendor-list-header h3 {
+    margin-bottom: 0;
+}
+
+.vendor-refresh-btn {
+    padding: 8px 14px;
+    font-size: 13px;
+}
+
+.vendor-table-container {
+    overflow-x: auto;
+}
+
+.vendor-table th,
+.vendor-table td {
+    vertical-align: top;
+}
+
+.vendor-table td:last-child {
+    min-width: 90px;
+}
+
+.vendor-table td:nth-child(6) {
+    min-width: 220px;
+}
+
+.vendor-delete-btn:hover {
+    background: var(--danger);
 }
 
 /* DC List */

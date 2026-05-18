@@ -113,7 +113,21 @@ function prRow(pr) {
     'Tracking ID': pr.trackingId || '',
     'Order ID': pr.orderId || '',
     'Invoice Number': pr.invoiceNumber || '',
-    'Final Amount': pr.finalAmount || ''
+    'Final Amount': pr.finalAmount || '',
+    'PI Number': pr.piNumber || '',
+    'PI Date': pr.piDate || ''
+  };
+}
+
+function vendorRow(vendor) {
+  return {
+    'Vendor Name': vendor.name || vendor.vendorName || '',
+    'Vendor Contact Number': vendor.contactNumber || vendor.vendorContactNumber || '',
+    Email: vendor.email || '',
+    'Vendor Address': vendor.address || vendor.vendorAddress || '',
+    GSTIN: vendor.gstin || '',
+    PAN: vendor.pan || '',
+    'Created Date': vendor.createdDate || new Date().toISOString().slice(0, 10)
   };
 }
 
@@ -270,6 +284,21 @@ async function handleAction(action, data) {
     return deleteInventoryItemByItemId(data.itemId);
   }
 
+  if (action === 'upsertVendor') {
+    const row = vendorRow(data);
+    if (!row['Vendor Name']) throw new Error('Missing vendor name');
+    if (!row['Vendor Contact Number']) throw new Error('Missing vendor contact number');
+    await upsertById('vendors', 'Vendor Name', row);
+    return { success: true, vendorName: row['Vendor Name'] };
+  }
+
+  if (action === 'deleteVendor') {
+    const vendorName = data.name || data.vendorName || '';
+    if (!vendorName) throw new Error('Missing vendor name');
+    await remove('vendors', { 'Vendor Name': filterEq(vendorName) });
+    return { success: true, vendorName };
+  }
+
   if (action === 'updateItemsStatus') {
     for (const itemId of data.itemIds || []) {
       await updateById('items', 'Item ID', itemId, { Status: data.status || 'Available' });
@@ -347,6 +376,8 @@ async function handleAction(action, data) {
       orderId: 'Order ID',
       invoiceNumber: 'Invoice Number',
       finalAmount: 'Final Amount',
+      piNumber: 'PI Number',
+      piDate: 'PI Date',
       notes: 'Notes'
     };
     for (const [key, column] of Object.entries(map)) {
