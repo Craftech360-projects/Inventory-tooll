@@ -629,12 +629,12 @@ async function fetchCsvRowsWithRetry(maxAttempts = 2) {
         try {
             const cacheBuster = Date.now();
             const response = await fetch(CONFIG.CSV_URL + '?_=' + cacheBuster, { cache: 'no-store' });
+            const csvText = await response.text();
 
             if (!response.ok) {
-                throw new Error('HTTP ' + response.status);
+                throw new Error(formatFetchError(response, csvText));
             }
 
-            const csvText = await response.text();
             if (!csvText || csvText.trim().length < 10) {
                 throw new Error('Empty CSV response');
             }
@@ -654,6 +654,21 @@ async function fetchCsvRowsWithRetry(maxAttempts = 2) {
     }
 
     throw lastError || new Error('CSV fetch failed');
+}
+
+function formatFetchError(response, bodyText = '') {
+    let detail = bodyText.trim();
+
+    if (detail) {
+        try {
+            const parsed = JSON.parse(detail);
+            detail = parsed.error || parsed.message || detail;
+        } catch {
+            detail = detail.replace(/\s+/g, ' ').slice(0, 180);
+        }
+    }
+
+    return `HTTP ${response.status}${detail ? ': ' + detail : ''}`;
 }
 
 // Load inventory data from Supabase via Netlify Functions.
@@ -928,8 +943,12 @@ async function addItem(e) {
 
 function generateItemId(category) {
     const prefix = CATEGORY_PREFIXES[category] || 'XX';
-    const existing = inventoryData.filter(i => i.category === category).length;
-    const num = String(existing + 1).padStart(3, '0');
+    const maxNumber = inventoryData.reduce((max, item) => {
+        const itemId = String(item.itemId || '');
+        const match = itemId.match(new RegExp(`^${prefix}-(\\d+)$`));
+        return match ? Math.max(max, parseInt(match[1], 10) || 0) : max;
+    }, 0);
+    const num = String(maxNumber + 1).padStart(3, '0');
     return `${prefix}-${num}`;
 }
 
@@ -1187,6 +1206,11 @@ async function loadDCData() {
             cache: 'no-store'
         });
         const csvText = await response.text();
+
+        if (!response.ok) {
+            throw new Error(formatFetchError(response, csvText));
+        }
+
         const data = parseCSV(csvText);
 
         const rows = (data || []).slice(1);
@@ -2680,8 +2704,8 @@ async function createPR(event) {
         priority: document.getElementById('prPriority').value,
         neededBy: document.getElementById('prNeededBy').value,
         vendor: document.getElementById('prVendor').value,
-        piNumber: document.getElementById('prPiNumber').value,
-        piDate: document.getElementById('prPiDate').value,
+        piNumber: '',
+        piDate: '',
         status: 'Request',
         createdDate: new Date().toISOString().split('T')[0]
     };
@@ -2759,6 +2783,14 @@ function viewPRDetail(prNumber) {
                             <select id="pmVendorName" data-vendor-select>
                                 ${vendorOptionsHtml(pr.vendor || '')}
                             </select>
+                        </div>
+                        <div class="form-group">
+                            <label>PI Number</label>
+                            <input type="text" id="pmPiNumber" placeholder="PI-XXXX" value="${pr.piNumber || ''}">
+                        </div>
+                        <div class="form-group">
+                            <label>PI Date</label>
+                            <input type="date" id="pmPiDate" value="${pr.piDate || ''}">
                         </div>
                         <div class="form-group" style="grid-column: span 2;">
                             <label>Quote Notes</label>
@@ -3053,6 +3085,8 @@ async function saveQuote(prNumber) {
     
     const quoteAmount = document.getElementById('pmQuoteAmount').value;
     const vendorName = document.getElementById('pmVendorName').value;
+    const piNumber = document.getElementById('pmPiNumber').value;
+    const piDate = document.getElementById('pmPiDate').value;
     const quoteNotes = document.getElementById('pmQuoteNotes').value;
     
     if (!quoteAmount || !vendorName) {
@@ -3065,6 +3099,8 @@ async function saveQuote(prNumber) {
     // Update local data
     pr.quoteAmount = quoteAmount;
     pr.vendor = vendorName;
+    pr.piNumber = piNumber;
+    pr.piDate = piDate;
     pr.quoteNotes = quoteNotes;
     pr.quotedBy = 'PM';
     pr.status = 'Quoted';
@@ -3076,6 +3112,8 @@ async function saveQuote(prNumber) {
             updates: {
                 status: 'Quoted',
                 vendor: vendorName,
+                piNumber: piNumber,
+                piDate: piDate,
                 quoteAmount: quoteAmount,
                 quoteNotes: quoteNotes,
                 quotedBy: 'PM'

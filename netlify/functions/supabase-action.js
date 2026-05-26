@@ -27,6 +27,10 @@ function normalizeLookupValue(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
 }
 
+function nullableDate(value) {
+  return value || null;
+}
+
 function inventoryRow(data) {
   return {
     'Item ID': data.itemId || '',
@@ -101,11 +105,11 @@ function prRow(pr) {
     'Needed By': pr.neededBy || '',
     Vendor: pr.vendor || '',
     Status: pr.status || 'Request',
-    'Created Date': pr.createdDate || '',
+    'Created Date': nullableDate(pr.createdDate),
     'Approved By': pr.approvedBy || '',
-    'Approved Date': pr.approvedDate || '',
-    'Ordered Date': pr.orderedDate || '',
-    'Received Date': pr.receivedDate || '',
+    'Approved Date': nullableDate(pr.approvedDate),
+    'Ordered Date': nullableDate(pr.orderedDate),
+    'Received Date': nullableDate(pr.receivedDate),
     Notes: pr.notes || '',
     'Quote Amount': pr.quoteAmount || '',
     'Quote Notes': pr.quoteNotes || '',
@@ -115,7 +119,7 @@ function prRow(pr) {
     'Invoice Number': pr.invoiceNumber || '',
     'Final Amount': pr.finalAmount || '',
     'PI Number': pr.piNumber || '',
-    'PI Date': pr.piDate || ''
+    'PI Date': nullableDate(pr.piDate)
   };
 }
 
@@ -269,10 +273,32 @@ async function generateResultItemId(category) {
   return `${prefix}-${String(maxNumber + 1).padStart(3, '0')}`;
 }
 
+async function resolveInventoryItemId(data) {
+  const requestedItemId = normalizeLookupValue(data.itemId);
+  const rows = await select('items');
+  const itemIds = new Set((Array.isArray(rows) ? rows : []).map(row => normalizeLookupValue(row?.['Item ID'])));
+
+  if (requestedItemId && !itemIds.has(requestedItemId)) {
+    return requestedItemId;
+  }
+
+  const requestedPrefix = requestedItemId.match(/^([A-Za-z]+)-\d+$/)?.[1];
+  const prefix = requestedPrefix || CATEGORY_PREFIXES[data.category] || 'ITM';
+  const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const idPattern = new RegExp(`^${escapedPrefix}-(\\d+)$`);
+  const maxNumber = [...itemIds].reduce((max, itemId) => {
+    const match = itemId.match(idPattern);
+    return match ? Math.max(max, parseInt(match[1], 10) || 0) : max;
+  }, 0);
+
+  return `${prefix}-${String(maxNumber + 1).padStart(3, '0')}`;
+}
+
 async function handleAction(action, data) {
   if (action === 'add') {
-    await insert('items', inventoryRow(data));
-    return { success: true, itemId: data.itemId };
+    const itemId = await resolveInventoryItemId(data);
+    await insert('items', inventoryRow({ ...data, itemId }));
+    return { success: true, itemId };
   }
 
   if (action === 'update') {
@@ -382,6 +408,9 @@ async function handleAction(action, data) {
     };
     for (const [key, column] of Object.entries(map)) {
       if (updates[key] !== undefined) row[column] = updates[key];
+    }
+    for (const column of ['Approved Date', 'Ordered Date', 'Received Date', 'PI Date']) {
+      if (row[column] !== undefined) row[column] = nullableDate(row[column]);
     }
     await updateById('purchase_requests', 'PR Number', data.prNumber, row);
     return { success: true };
