@@ -2781,9 +2781,7 @@ function viewPRDetail(prNumber) {
                         </div>
                         <div class="form-group">
                             <label>Vendor Name *</label>
-                            <select id="pmVendorName" data-vendor-select>
-                                ${vendorOptionsHtml(pr.vendor || '')}
-                            </select>
+                            <input type="text" id="pmVendorName" placeholder="Enter vendor name" value="${escapeHtml(pr.vendor || '')}">
                         </div>
                         <div class="form-group">
                             <label>PI Number</label>
