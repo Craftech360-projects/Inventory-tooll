@@ -2673,6 +2673,7 @@ function renderPRList() {
             </div>
             ${pr.quoteAmount ? `<div class="pr-card-quote">₹${pr.quoteAmount}</div>` : ''}
             <div class="pr-card-status pr-status-${pr.status.toLowerCase().replace(' ', '')}">${pr.status}</div>
+            <button class="pr-card-delete" onclick="deletePR(event, '${pr.prNumber}')" title="Delete purchase request">Delete</button>
         </div>
     `).join('');
 }
@@ -2933,6 +2934,7 @@ function viewPRDetail(prNumber) {
             </div>
             <div class="pr-detail-actions">
                 ${actionButtons}
+                <button class="btn-delete-pr" onclick="deletePR(event, '${prNumber}')">Delete</button>
                 <button class="btn-back" onclick="switchView('purchaseRequests')">← Back</button>
             </div>
         </div>
@@ -3031,6 +3033,36 @@ function viewPRDetail(prNumber) {
     `;
     
     switchView('prDetail');
+}
+
+async function deletePR(event, prNumber) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    const pr = prData.find(p => p.prNumber === prNumber);
+    if (!pr) {
+        showToast('Purchase request not found', 'error');
+        return;
+    }
+
+    if (!confirm(`Delete purchase request ${prNumber}?`)) {
+        return;
+    }
+
+    try {
+        showToast('Deleting purchase request...', 'success');
+        await supabaseAction('deletePR', { prNumber });
+
+        prData = prData.filter(p => p.prNumber !== prNumber);
+        renderPRList();
+        switchView('purchaseRequests');
+        showToast('Purchase request deleted successfully!', 'success');
+    } catch (error) {
+        console.error('Error deleting PR:', error);
+        showToast('Failed to delete purchase request: ' + error.message, 'error');
+    }
 }
 
 // Update PR Status

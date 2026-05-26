@@ -1842,6 +1842,20 @@ body {
     text-transform: uppercase;
 }
 
+.pr-card-delete {
+    padding: 6px 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--danger);
+    border-radius: var(--radius-sm);
+    color: var(--danger);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.pr-card-delete:hover {
+    background: rgba(239, 68, 68, 0.1);
+}
+
 .pr-status-request { background: rgba(107, 114, 128, 0.2); color: #9ca3af; }
 .pr-status-approved { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
 .pr-status-ordered { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
@@ -1876,6 +1890,20 @@ body {
 .pr-detail-actions {
     display: flex;
     gap: 10px;
+}
+
+.btn-delete-pr {
+    padding: 10px 20px;
+    background: var(--bg-hover);
+    border: 1px solid var(--danger);
+    border-radius: var(--radius-sm);
+    color: var(--danger);
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.btn-delete-pr:hover {
+    background: rgba(239, 68, 68, 0.1);
 }
 
 .pr-status-tabs {

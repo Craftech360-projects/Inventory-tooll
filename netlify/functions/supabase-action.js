@@ -385,6 +385,13 @@ async function handleAction(action, data) {
     return { success: true, prNumber: pr.prNumber };
   }
 
+  if (action === 'deletePR') {
+    const prNumber = data.prNumber || '';
+    if (!prNumber) throw new Error('Missing PR number');
+    await remove('purchase_requests', { 'PR Number': filterEq(prNumber) });
+    return { success: true, prNumber };
+  }
+
   if (action === 'updatePR') {
     const updates = data.updates || {};
     const row = {};
