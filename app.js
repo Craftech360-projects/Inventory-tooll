@@ -2691,11 +2691,19 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Create PR
+function generatePRNumber() {
+    const maxNumber = prData.reduce((max, pr) => {
+        const match = String(pr.prNumber || '').match(/^PR-(\d+)$/);
+        return match ? Math.max(max, parseInt(match[1], 10) || 0) : max;
+    }, 0);
+    return 'PR-' + String(maxNumber + 1).padStart(3, '0');
+}
+
 async function createPR(event) {
     event.preventDefault();
     
     const pr = {
-        prNumber: 'PR-' + String(prData.length + 1).padStart(3, '0'),
+        prNumber: generatePRNumber(),
         itemName: document.getElementById('prItemName').value,
         description: document.getElementById('prDescription').value,
         quantity: document.getElementById('prQuantity').value,
@@ -2714,7 +2722,8 @@ async function createPR(event) {
     showToast('Creating purchase request...', 'success');
     
     try {
-        await supabaseAction('createPR', { data: pr });
+        const result = await supabaseAction('createPR', { data: pr });
+        pr.prNumber = result.prNumber || pr.prNumber;
         
         // Add to local data
         prData.unshift(pr);

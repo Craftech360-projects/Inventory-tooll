@@ -56,6 +56,31 @@ async function resolveItemId(item) {
   return `${prefix}-${String(maxNumber + 1).padStart(3, '0')}`;
 }
 
+function isDuplicateKeyError(error) {
+  return /duplicate key value violates unique constraint/i.test(String(error?.message || ''));
+}
+
+async function insertInventoryItem(item) {
+  let itemId = item.itemId;
+  let lastError = null;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    itemId = await resolveItemId({ ...item, itemId });
+
+    try {
+      await insert('items', inventoryRow({ ...item, itemId }));
+      return itemId;
+    } catch (error) {
+      lastError = error;
+      if (!isDuplicateKeyError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError || new Error('Failed to add inventory item');
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return jsonResponse({ success: false, error: 'Method not allowed' }, 405);
@@ -63,8 +88,7 @@ exports.handler = async (event) => {
 
   try {
     const item = JSON.parse(event.body || '{}');
-    const itemId = await resolveItemId(item);
-    await insert('items', inventoryRow({ ...item, itemId }));
+    const itemId = await insertInventoryItem(item);
     return jsonResponse({ success: true, itemId });
   } catch (error) {
     return jsonResponse({ success: false, error: error.message }, 500);

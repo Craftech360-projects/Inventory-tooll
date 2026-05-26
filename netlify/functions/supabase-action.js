@@ -12,9 +12,9 @@ const CATEGORY_PREFIXES = {
   Electronics: 'EC',
   'Electronic Components': 'EC',
   'IT Assets': 'IT',
-  'Office Assets': 'OF',
-  'Office Asset': 'OF',
-  'Mechanical Division': 'MD',
+  'Office Assets': 'OA',
+  'Office Asset': 'OA',
+  'Mechanical Division': 'MC',
   'Dead Stock': 'DS',
   'Rented Equipment': 'RE'
 };
@@ -121,6 +121,23 @@ function prRow(pr) {
     'PI Number': pr.piNumber || '',
     'PI Date': nullableDate(pr.piDate)
   };
+}
+
+async function resolvePRNumber(requestedPrNumber) {
+  const requested = normalizeLookupValue(requestedPrNumber);
+  const rows = await select('purchase_requests');
+  const prNumbers = new Set((Array.isArray(rows) ? rows : []).map(row => normalizeLookupValue(row?.['PR Number'])));
+
+  if (requested && !prNumbers.has(requested)) {
+    return requested;
+  }
+
+  const maxNumber = [...prNumbers].reduce((max, prNumber) => {
+    const match = prNumber.match(/^PR-(\d+)$/);
+    return match ? Math.max(max, parseInt(match[1], 10) || 0) : max;
+  }, 0);
+
+  return `PR-${String(maxNumber + 1).padStart(3, '0')}`;
 }
 
 function vendorRow(vendor) {
@@ -294,10 +311,55 @@ async function resolveInventoryItemId(data) {
   return `${prefix}-${String(maxNumber + 1).padStart(3, '0')}`;
 }
 
+function isDuplicateKeyError(error) {
+  return /duplicate key value violates unique constraint/i.test(String(error?.message || ''));
+}
+
+async function insertInventoryItem(data) {
+  let itemId = data.itemId;
+  let lastError = null;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    itemId = await resolveInventoryItemId({ ...data, itemId });
+
+    try {
+      await insert('items', inventoryRow({ ...data, itemId }));
+      return itemId;
+    } catch (error) {
+      lastError = error;
+      if (!isDuplicateKeyError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError || new Error('Failed to add inventory item');
+}
+
+async function insertPurchaseRequest(pr) {
+  let prNumber = pr.prNumber;
+  let lastError = null;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    prNumber = await resolvePRNumber(prNumber);
+
+    try {
+      await insert('purchase_requests', prRow({ ...pr, prNumber }));
+      return prNumber;
+    } catch (error) {
+      lastError = error;
+      if (!isDuplicateKeyError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError || new Error('Failed to create purchase request');
+}
+
 async function handleAction(action, data) {
   if (action === 'add') {
-    const itemId = await resolveInventoryItemId(data);
-    await insert('items', inventoryRow({ ...data, itemId }));
+    const itemId = await insertInventoryItem(data);
     return { success: true, itemId };
   }
 
@@ -381,8 +443,8 @@ async function handleAction(action, data) {
 
   if (action === 'createPR') {
     const pr = data.data || data;
-    await insert('purchase_requests', prRow(pr));
-    return { success: true, prNumber: pr.prNumber };
+    const prNumber = await insertPurchaseRequest(pr);
+    return { success: true, prNumber };
   }
 
   if (action === 'deletePR') {
