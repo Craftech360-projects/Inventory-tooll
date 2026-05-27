@@ -92,6 +92,23 @@ function dcItemRows(dcNumber, items = []) {
   }));
 }
 
+async function resolveDCNumber(requestedDcNumber) {
+  const requested = normalizeLookupValue(requestedDcNumber);
+  const rows = await select('delivery_channels');
+  const dcNumbers = new Set((Array.isArray(rows) ? rows : []).map(row => normalizeLookupValue(row?.['DC Number'])));
+
+  if (requested && !dcNumbers.has(requested)) {
+    return requested;
+  }
+
+  const maxNumber = [...dcNumbers].reduce((max, dcNumber) => {
+    const match = dcNumber.match(/^DC-(\d+)$/);
+    return match ? Math.max(max, parseInt(match[1], 10) || 0) : max;
+  }, 0);
+
+  return `DC-${String(maxNumber + 1).padStart(3, '0')}`;
+}
+
 function prRow(pr) {
   return {
     'PR Number': pr.prNumber || '',
@@ -395,13 +412,14 @@ async function handleAction(action, data) {
   }
 
   if (action === 'createDC' || action === 'updateDC') {
-    const existingRows = await select('delivery_channels', { filters: { 'DC Number': filterEq(data.dcNumber) } });
+    const dcNumber = action === 'createDC' ? await resolveDCNumber(data.dcNumber) : data.dcNumber;
+    const existingRows = await select('delivery_channels', { filters: { 'DC Number': filterEq(dcNumber) } });
     const existing = Array.isArray(existingRows) ? existingRows[0] : {};
-    await upsertById('delivery_channels', 'DC Number', dcRow(data, existing));
-    await remove('dc_items', { 'DC Number': filterEq(data.dcNumber) });
-    const items = dcItemRows(data.dcNumber, data.items);
+    await upsertById('delivery_channels', 'DC Number', dcRow({ ...data, dcNumber }, existing));
+    await remove('dc_items', { 'DC Number': filterEq(dcNumber) });
+    const items = dcItemRows(dcNumber, data.items);
     if (items.length > 0) await insert('dc_items', items);
-    return { success: true, dcNumber: data.dcNumber };
+    return { success: true, dcNumber };
   }
 
   if (action === 'updateDCItems') {

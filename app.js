@@ -145,6 +145,7 @@ const SUB_CATEGORIES = {
 let inventoryData = [];
 let filteredData = [];
 let isInventoryLoading = false;
+let isAddingItem = false;
 let vendorData = [];
 
 // Initialize
@@ -487,11 +488,13 @@ async function loadVendorData() {
         const rows = parseCSV(text);
         vendorData = mapRowsToVendors(rows);
         populateVendorSelects();
+        populatePurchaseRequestVendorOptions();
         renderVendorTable();
     } catch (error) {
         console.warn('Vendor list not available:', error.message);
         vendorData = [];
         populateVendorSelects();
+        populatePurchaseRequestVendorOptions();
         renderVendorTable('Vendor table is not available yet. Apply the database plan, then refresh.');
     }
 }
@@ -520,6 +523,15 @@ function vendorOptionsHtml(selectedName = '') {
             const selected = vendor.name === selectedName ? ' selected' : '';
             return `<option value="${escapeHtml(vendor.name)}"${selected}>${escapeHtml(vendor.name)}</option>`;
         }).join('');
+}
+
+function populatePurchaseRequestVendorOptions() {
+    const datalist = document.getElementById('purchaseRequestVendorOptions');
+    if (!datalist) return;
+
+    datalist.innerHTML = vendorData
+        .map(vendor => `<option value="${escapeHtml(vendor.name)}"></option>`)
+        .join('');
 }
 
 function setVendorSelectValue(selectId, value) {
@@ -561,12 +573,12 @@ function renderVendorTable(message = '') {
 
     tbody.innerHTML = vendorData.map((vendor, index) => `
         <tr>
-            <td>${escapeHtml(vendor.name)}</td>
-            <td>${escapeHtml(vendor.contactNumber)}</td>
+            <td><span class="vendor-name-cell">${escapeHtml(vendor.name)}</span></td>
+            <td><span class="vendor-contact-cell">${escapeHtml(vendor.contactNumber)}</span></td>
             <td>${escapeHtml(vendor.email || '-')}</td>
-            <td>${escapeHtml(vendor.gstin || '-')}</td>
-            <td>${escapeHtml(vendor.pan || '-')}</td>
-            <td>${escapeHtml(vendor.address || '-')}</td>
+            <td><span class="vendor-code-cell">${escapeHtml(vendor.gstin || '-')}</span></td>
+            <td><span class="vendor-code-cell">${escapeHtml(vendor.pan || '-')}</span></td>
+            <td><span class="vendor-address-cell">${escapeHtml(vendor.address || '-')}</span></td>
             <td>
                 <button type="button" class="action-btn vendor-delete-btn" onclick="deleteVendor(${index})">Delete</button>
             </td>
@@ -898,6 +910,9 @@ function filterByCategory(category) {
 // Add Item
 async function addItem(e) {
     e.preventDefault();
+
+    if (isAddingItem) return;
+    isAddingItem = true;
     
     const category = document.getElementById('itemCategory').value;
     const itemId = generateItemId(category);
@@ -938,6 +953,8 @@ async function addItem(e) {
     } catch (error) {
         console.error('Error adding item:', error);
         showToast('Failed to add item: ' + error.message, 'error');
+    } finally {
+        isAddingItem = false;
     }
 }
 
@@ -1254,8 +1271,11 @@ async function loadDCData() {
 
 // Generate DC Number
 function generateDCNumber() {
-    const existing = dcData.length;
-    const num = String(existing + 1).padStart(3, '0');
+    const maxNumber = dcData.reduce((max, dc) => {
+        const match = String(dc.dcNumber || '').match(/^DC-(\d+)$/);
+        return match ? Math.max(max, parseInt(match[1], 10) || 0) : max;
+    }, 0);
+    const num = String(maxNumber + 1).padStart(3, '0');
     return `DC-${num}`;
 }
 
@@ -1508,9 +1528,10 @@ async function createDC(e) {
         const action = isEditing ? 'updateDC' : 'createDC';
         showToast(isEditing ? 'Updating DC...' : 'Creating Delivery Channel...', 'success');
         
-        await supabaseAction(action, dcPayload);
+        const result = await supabaseAction(action, dcPayload);
+        const savedDcNumber = result.dcNumber || dcNumber;
         
-        showToast(`✅ ${dcNumber} ${isEditing ? 'updated' : 'created'} successfully!`, 'success');
+        showToast(`✅ ${savedDcNumber} ${isEditing ? 'updated' : 'created'} successfully!`, 'success');
         
         // Reset form and edit mode
         form.reset();
@@ -2790,7 +2811,7 @@ function viewPRDetail(prNumber) {
                         </div>
                         <div class="form-group">
                             <label>Vendor Name *</label>
-                            <input type="text" id="pmVendorName" placeholder="Enter vendor name" value="${escapeHtml(pr.vendor || '')}">
+                            <input type="text" id="pmVendorName" list="purchaseRequestVendorOptions" placeholder="Select or enter vendor name" value="${escapeHtml(pr.vendor || '')}">
                         </div>
                         <div class="form-group">
                             <label>PI Number</label>
@@ -4461,6 +4482,84 @@ function renderEmployees() {
     }).join('');
 }
 
+function renderEmployees() {
+    const container = document.getElementById('employeesList');
+    const searchTerm = document.getElementById('employeeSearch')?.value?.toLowerCase() || '';
+
+    const filtered = employeesData.filter(emp =>
+        emp.name?.toLowerCase().includes(searchTerm) ||
+        emp.department?.toLowerCase().includes(searchTerm) ||
+        emp.role?.toLowerCase().includes(searchTerm)
+    );
+
+    if (filtered.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <h3>No Employees Found</h3>
+                <p>No matching employees were found in the employees table.</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = filtered.map(emp => {
+        const assets = employeeAssetsData.filter(a => a.empId === emp.empId && a.status === 'Active');
+        const assetCount = assets.length;
+
+        return `
+            <button type="button" class="employee-card" onclick="viewEmployeeDetail('${escapeHtml(emp.empId)}')">
+                <span class="employee-card-main">
+                    <span class="employee-card-name">${escapeHtml(emp.name || '-')}</span>
+                    <span class="employee-card-meta">${escapeHtml(emp.role || 'No role')} <span>•</span> ${escapeHtml(emp.department || 'No department')}</span>
+                    ${emp.phone ? `<span class="employee-card-phone">${escapeHtml(emp.phone)}</span>` : ''}
+                </span>
+                <span class="employee-asset-badge ${assetCount > 0 ? 'has-assets' : ''}">
+                    ${assetCount} Asset${assetCount !== 1 ? 's' : ''}
+                </span>
+            </button>
+        `;
+    }).join('');
+}
+
+function employeeAssetRows(assets, type) {
+    return assets.map(asset => `
+        <tr>
+            <td>${escapeHtml(asset.itemName || '-')}</td>
+            <td>${escapeHtml(asset.assignedDate || '-')}</td>
+            ${type === 'active' ? `
+                <td class="employee-table-action">
+                    <button class="btn-secondary employee-return-btn" onclick="returnAsset('${escapeHtml(asset.id)}')">Return</button>
+                </td>
+            ` : `
+                <td>${escapeHtml(asset.returnedDate || '-')}</td>
+            `}
+        </tr>
+    `).join('');
+}
+
+function employeeAssetsTable(assets, type) {
+    if (assets.length === 0) {
+        return `<div class="employee-empty-panel">No ${type === 'active' ? 'active' : 'returned'} assets found.</div>`;
+    }
+
+    return `
+        <div class="employee-table-wrap">
+            <table class="employee-assets-table">
+                <thead>
+                    <tr>
+                        <th>Product Name</th>
+                        <th>Assigned Date</th>
+                        <th>${type === 'active' ? 'Action' : 'Returned Date'}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${employeeAssetRows(assets, type)}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
 function filterEmployees() {
     renderEmployees();
 }
@@ -4562,6 +4661,64 @@ function viewEmployeeDetail(empId) {
         ` : ''}
     `;
     
+    switchView('employeeDetail');
+}
+
+function viewEmployeeDetail(empId) {
+    currentEmployeeId = empId;
+    const emp = employeesData.find(e => e.empId === empId);
+    if (!emp) {
+        alert('Employee not found! empId: ' + empId);
+        return;
+    }
+
+    const assets = employeeAssetsData.filter(a => String(a.empId) === String(empId));
+    const activeAssets = assets.filter(a => a.status === 'Active');
+    const returnedAssets = assets.filter(a => a.status === 'Returned');
+
+    const content = document.getElementById('employeeDetailContent');
+    content.innerHTML = `
+        <div class="employee-detail-header">
+            <div>
+                <h2>${escapeHtml(emp.name || '-')}</h2>
+                <p>${escapeHtml(emp.role || 'No designation')} <span>•</span> ${escapeHtml(emp.department || 'No department')}</p>
+                <p class="employee-detail-muted">Joined: ${escapeHtml(emp.joinDate || 'Not set')}</p>
+            </div>
+            <button class="btn-primary" onclick="openAssignAsset('${escapeHtml(empId)}')">+ Assign Asset</button>
+        </div>
+
+        <div class="employee-detail-stats">
+            <div class="employee-stat-card">
+                <div class="employee-stat-label">Active Assets</div>
+                <div class="employee-stat-value">${activeAssets.length}</div>
+            </div>
+            <div class="employee-stat-card">
+                <div class="employee-stat-label">Returned</div>
+                <div class="employee-stat-value">${returnedAssets.length}</div>
+            </div>
+            <div class="employee-stat-card">
+                <div class="employee-stat-label">Total Assigned</div>
+                <div class="employee-stat-value">${assets.length}</div>
+            </div>
+        </div>
+
+        <section class="employee-assets-section">
+            <div class="employee-section-header">
+                <h3>Current Assets</h3>
+            </div>
+            ${employeeAssetsTable(activeAssets, 'active')}
+        </section>
+
+        ${returnedAssets.length > 0 ? `
+            <section class="employee-assets-section">
+                <div class="employee-section-header">
+                    <h3>History</h3>
+                </div>
+                ${employeeAssetsTable(returnedAssets, 'returned')}
+            </section>
+        ` : ''}
+    `;
+
     switchView('employeeDetail');
 }
 
