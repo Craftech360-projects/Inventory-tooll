@@ -730,12 +730,11 @@
             <section id="employeeAssetsView" class="view">
                 <div class="employee-assets-shell">
                     <div class="employee-assets-header">
-                        <div>
-                            <h2>Employee Assets</h2>
-                            <p class="view-subtitle">Track assigned inventory by employee</p>
-                        </div>
                         <div class="employee-search-wrap">
                             <input type="text" id="employeeSearch" placeholder="Search employees..." onkeyup="filterEmployees()">
+                        </div>
+                        <div class="employee-assets-actions">
+                            <button class="btn-primary" onclick="openAssignAsset()">+ Assign Asset</button>
                         </div>
                     </div>
 
@@ -776,9 +775,11 @@
                         <div class="form-grid assign-asset-grid">
                             <div class="form-group">
                                 <label>Select Employee *</label>
-                                <select id="assignEmpId" required>
-                                    <option value="">Select Employee</option>
-                                </select>
+                                <div class="assign-employee-group">
+                                    <input type="search" id="assignEmployeeSearch" placeholder="Type employee name, ID, or department" autocomplete="off" oninput="filterAssignEmployees()" onfocus="showAssignEmployeeResults()">
+                                    <input type="hidden" id="assignEmpId">
+                                    <div id="assignEmployeeResults" class="asset-search-results"></div>
+                                </div>
                             </div>
                             <div class="form-group asset-search-group">
                                 <label>Asset *</label>

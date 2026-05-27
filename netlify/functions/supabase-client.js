@@ -50,12 +50,19 @@ function select(table, options = {}) {
   const params = new URLSearchParams();
   params.set('select', options.select || '*');
   if (options.order) params.set('order', options.order);
+  if (options.limit) params.set('limit', String(options.limit));
   if (options.filters) {
     for (const [column, filter] of Object.entries(options.filters)) {
       params.set(column, filter);
     }
   }
-  return supabaseRequest(`${table}?${params.toString()}`);
+  const requestOptions = {};
+  if (options.range) {
+    requestOptions.headers = {
+      Range: `${options.range.from}-${options.range.to}`
+    };
+  }
+  return supabaseRequest(`${table}?${params.toString()}`, requestOptions);
 }
 
 function insert(table, rows) {

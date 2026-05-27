@@ -4411,6 +4411,7 @@ switchView = function(viewName) {
 let employeesData = [];
 let employeeAssetsData = [];
 let selectedAssignAssetItem = null;
+let selectedAssignEmployee = null;
 
 async function loadEmployeesData() {
     try {
@@ -4486,11 +4487,14 @@ function renderEmployees() {
     const container = document.getElementById('employeesList');
     const searchTerm = document.getElementById('employeeSearch')?.value?.toLowerCase() || '';
 
-    const filtered = employeesData.filter(emp =>
-        emp.name?.toLowerCase().includes(searchTerm) ||
-        emp.department?.toLowerCase().includes(searchTerm) ||
-        emp.role?.toLowerCase().includes(searchTerm)
-    );
+    const filtered = employeesData
+        .filter(emp =>
+            String(emp.name || '').toLowerCase().includes(searchTerm) ||
+            String(emp.empId || '').toLowerCase().includes(searchTerm) ||
+            String(emp.department || '').toLowerCase().includes(searchTerm) ||
+            String(emp.role || '').toLowerCase().includes(searchTerm)
+        )
+        .sort((a, b) => String(a.name || a.empId).localeCompare(String(b.name || b.empId)));
 
     if (filtered.length === 0) {
         container.innerHTML = `
@@ -4525,11 +4529,14 @@ function renderEmployees() {
     const container = document.getElementById('employeesList');
     const searchTerm = document.getElementById('employeeSearch')?.value?.toLowerCase() || '';
 
-    const filtered = employeesData.filter(emp =>
-        emp.name?.toLowerCase().includes(searchTerm) ||
-        emp.department?.toLowerCase().includes(searchTerm) ||
-        emp.role?.toLowerCase().includes(searchTerm)
-    );
+    const filtered = employeesData
+        .filter(emp =>
+            String(emp.name || '').toLowerCase().includes(searchTerm) ||
+            String(emp.empId || '').toLowerCase().includes(searchTerm) ||
+            String(emp.department || '').toLowerCase().includes(searchTerm) ||
+            String(emp.role || '').toLowerCase().includes(searchTerm)
+        )
+        .sort((a, b) => String(a.name || a.empId).localeCompare(String(b.name || b.empId)));
 
     if (filtered.length === 0) {
         container.innerHTML = `
@@ -4779,11 +4786,11 @@ function viewEmployeeDetail(empId) {
 function openAssignAsset(empId) {
     currentEmployeeId = empId;
     
-    // Populate employee dropdown
-    const empSelect = document.getElementById('assignEmpId');
-    empSelect.innerHTML = employeesData.map(emp => 
-        `<option value="${emp.empId}" ${emp.empId === empId ? 'selected' : ''}>${emp.name} - ${emp.department}</option>`
-    ).join('');
+    const emp = employeesData.find(employee => String(employee.empId) === String(empId));
+    selectedAssignEmployee = emp || null;
+    document.getElementById('assignEmpId').value = emp?.empId || '';
+    document.getElementById('assignEmployeeSearch').value = emp ? assignEmployeeLabel(emp) : '';
+    hideAssignEmployeeResults();
     
     selectedAssignAssetItem = null;
     document.getElementById('assignItemId').value = '';
@@ -4810,19 +4817,87 @@ function legacyUpdateAssetDetails() {
     }
 }
 
+function assignEmployeeLabel(emp) {
+    const name = emp?.name || emp?.empId || 'Employee';
+    const meta = [emp?.empId, emp?.department].filter(Boolean).join(' - ');
+    return meta ? `${name} (${meta})` : name;
+}
+
+function filterAssignEmployees() {
+    const searchEl = document.getElementById('assignEmployeeSearch');
+    const resultsEl = document.getElementById('assignEmployeeResults');
+    if (!searchEl || !resultsEl) return;
+
+    const query = searchEl.value.trim().toLowerCase();
+    if (selectedAssignEmployee && searchEl.value !== assignEmployeeLabel(selectedAssignEmployee)) {
+        selectedAssignEmployee = null;
+        document.getElementById('assignEmpId').value = '';
+    }
+
+    const employees = employeesData
+        .filter(emp => {
+            if (!query) return true;
+            return [emp.name, emp.empId, emp.department, emp.role, emp.email]
+                .some(value => String(value || '').toLowerCase().includes(query));
+        })
+        .sort((a, b) => String(a.name || a.empId).localeCompare(String(b.name || b.empId)))
+        .slice(0, 40);
+
+    if (employees.length === 0) {
+        resultsEl.innerHTML = '<div class="asset-search-empty">No employees found</div>';
+        resultsEl.classList.add('active');
+        return;
+    }
+
+    resultsEl.innerHTML = employees.map(emp => `
+        <button type="button" class="asset-search-option" onclick="selectAssignEmployee('${escapeHtml(emp.empId)}')">
+            <span class="asset-search-name">${escapeHtml(emp.name || emp.empId || '-')}</span>
+            <span class="asset-search-meta">${escapeHtml([emp.empId, emp.department, emp.role].filter(Boolean).join(' - ') || 'No details')}</span>
+        </button>
+    `).join('');
+    resultsEl.classList.add('active');
+}
+
+function showAssignEmployeeResults() {
+    filterAssignEmployees();
+}
+
+function hideAssignEmployeeResults() {
+    const resultsEl = document.getElementById('assignEmployeeResults');
+    if (resultsEl) resultsEl.classList.remove('active');
+}
+
+function selectAssignEmployee(empId) {
+    const emp = employeesData.find(employee => String(employee.empId) === String(empId));
+    if (!emp) return;
+
+    selectedAssignEmployee = emp;
+    document.getElementById('assignEmpId').value = emp.empId;
+    document.getElementById('assignEmployeeSearch').value = assignEmployeeLabel(emp);
+    document.getElementById('assignEmployeeResults').classList.remove('active');
+}
+
 async function assignAssetToEmployee(event) {
     event.preventDefault();
+    const empId = document.getElementById('assignEmpId').value;
     const itemId = document.getElementById('assignItemId').value;
     const item = selectedAssignAssetItem || inventoryData.find(i => i.itemId === itemId);
+
+    if (!empId) {
+        showToast('Please select an employee from the search results', 'error');
+        return;
+    }
 
     if (!item) {
         showToast('Please select an asset from the search results', 'error');
         return;
     }
+
+    currentEmployeeId = empId;
     
     const assetData = {
         id: 'EA-' + Date.now(),
-        empId: document.getElementById('assignEmpId').value,
+        empId,
         itemId: item.itemId,
         itemName: item.name,
         serialNo: document.getElementById('assignSerialNo').value,
@@ -4840,6 +4915,7 @@ async function assignAssetToEmployee(event) {
         
         setTimeout(async () => {
             document.getElementById('assignAssetForm').reset();
+            selectedAssignEmployee = null;
             selectedAssignAssetItem = null;
             await loadEmployeesData();
             await loadData();
@@ -4951,8 +5027,13 @@ function selectAssignAsset(itemId) {
 }
 
 document.addEventListener('click', (event) => {
-    const group = document.querySelector('.asset-search-group');
-    if (group && !group.contains(event.target)) {
+    const employeeGroup = document.querySelector('.assign-employee-group');
+    if (employeeGroup && !employeeGroup.contains(event.target)) {
+        hideAssignEmployeeResults();
+    }
+
+    const assetGroup = document.querySelector('.asset-search-group');
+    if (assetGroup && !assetGroup.contains(event.target)) {
         hideAssignAssetResults();
     }
 });

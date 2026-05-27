@@ -562,7 +562,8 @@ body {
     border-color: var(--primary);
 }
 
-.asset-search-group {
+.asset-search-group,
+.assign-employee-group {
     position: relative;
 }
 
@@ -818,18 +819,17 @@ body {
 .employee-assets-header {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
+    align-items: center;
     gap: 16px;
-}
-
-.employee-assets-header h2 {
-    font-size: 22px;
-    line-height: 1.2;
-    margin-bottom: 4px;
 }
 
 .employee-search-wrap {
     width: min(360px, 100%);
+}
+
+.employee-assets-actions {
+    display: flex;
+    justify-content: flex-end;
 }
 
 .employee-search-wrap input {
@@ -1169,6 +1169,10 @@ body {
     .employee-detail-header {
         align-items: stretch;
         flex-direction: column;
+    }
+
+    .employee-assets-actions {
+        justify-content: flex-start;
     }
 
     .employee-stats,
