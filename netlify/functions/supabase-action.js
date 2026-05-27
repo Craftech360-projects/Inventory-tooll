@@ -53,7 +53,10 @@ function inventoryRow(data) {
 }
 
 function dcRow(data, existing = {}) {
-  return {
+  const includeExecutorColumn = data.includeExecutorColumn !== false;
+  const executorName = data.executorName || data.eventExecutor || '';
+  const notes = data.includeExecutorNote ? withExecutorNote(data.notes || '', executorName) : data.notes || '';
+  const row = {
     'DC Number': data.dcNumber || existing['DC Number'] || '',
     'Event Name': data.eventName || '',
     Activity: data.activity || '',
@@ -73,11 +76,32 @@ function dcRow(data, existing = {}) {
     Status: existing.Status || data.status || 'Draft',
     'PM Approver': existing['PM Approver'] || data.pmApprover || '',
     'Approval Date': existing['Approval Date'] || data.approvalDate || '',
-    Notes: data.notes || '',
+    Notes: notes,
     'Created Date': existing['Created Date'] || data.createdDate || '',
     'From Address': data.fromAddress || '',
     'To Address': data.toAddress || ''
   };
+
+  if (includeExecutorColumn) {
+    row['Event Executor'] = executorName;
+  }
+
+  return row;
+}
+
+function withExecutorNote(notes, executorName) {
+  const visibleNotes = String(notes || '')
+    .split(/\r?\n/)
+    .filter(line => !/^\s*\[Event Executor:/i.test(line))
+    .join('\n')
+    .trim();
+
+  const executorLine = executorName ? `[Event Executor: ${executorName}]` : '';
+  return [visibleNotes, executorLine].filter(Boolean).join('\n');
+}
+
+function isMissingEventExecutorColumn(error) {
+  return /Event Executor|schema cache|column/i.test(String(error?.message || ''));
 }
 
 function dcItemRows(dcNumber, items = []) {
@@ -415,7 +439,16 @@ async function handleAction(action, data) {
     const dcNumber = action === 'createDC' ? await resolveDCNumber(data.dcNumber) : data.dcNumber;
     const existingRows = await select('delivery_channels', { filters: { 'DC Number': filterEq(dcNumber) } });
     const existing = Array.isArray(existingRows) ? existingRows[0] : {};
-    await upsertById('delivery_channels', 'DC Number', dcRow({ ...data, dcNumber }, existing));
+    try {
+      await upsertById('delivery_channels', 'DC Number', dcRow({ ...data, dcNumber }, existing));
+    } catch (error) {
+      if (!isMissingEventExecutorColumn(error)) throw error;
+      await upsertById(
+        'delivery_channels',
+        'DC Number',
+        dcRow({ ...data, dcNumber, includeExecutorColumn: false, includeExecutorNote: true }, existing)
+      );
+    }
     await remove('dc_items', { 'DC Number': filterEq(dcNumber) });
     const items = dcItemRows(dcNumber, data.items);
     if (items.length > 0) await insert('dc_items', items);

@@ -23,7 +23,8 @@ const HEADERS = [
   'Notes',
   'Created Date',
   'From Address',
-  'To Address'
+  'To Address',
+  'Event Executor'
 ];
 
 exports.handler = async () => {

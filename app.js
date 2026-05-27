@@ -1181,6 +1181,26 @@ let selectedDCItems = [];
 let isOpeningDCEdit = false;
 let cachedPreparedLogoDataUrl = null;
 
+function splitDCNotesAndExecutor(rawNotes, executorColumnValue = '') {
+    const lines = String(rawNotes || '').split(/\r?\n/);
+    let executorName = String(executorColumnValue || '').trim();
+    const visibleNotes = [];
+
+    lines.forEach(line => {
+        const executorMatch = line.match(/^\s*\[Event Executor:\s*(.*?)\]\s*$/i);
+        if (executorMatch) {
+            if (!executorName) executorName = executorMatch[1].trim();
+            return;
+        }
+        visibleNotes.push(line);
+    });
+
+    return {
+        notes: visibleNotes.join('\n').trim(),
+        executorName
+    };
+}
+
 function updateCreateDCBackButton() {
     const form = document.getElementById('createDCForm');
     const backBtn = document.getElementById('createDCEditBackBtn');
@@ -1231,33 +1251,38 @@ async function loadDCData() {
         const data = parseCSV(csvText);
 
         const rows = (data || []).slice(1);
-        dcData = rows.map((row, index) => ({
-            // Keep exact spreadsheet row index even if there are blank rows in between.
-            rowIndex: index + 2,
-            dcNumber: (row[0] || '').trim(),
-            eventName: row[1] || '',
-            activity: row[2] || '',
-            eventDate: row[3] || '',
-            eventLocation: row[4] || '',
-            clientName: row[5] || '',
-            clientPOC: row[6] || '',
-            clientPhone: row[7] || '',
-            sitePOC: row[8] || '',
-            sitePhone: row[9] || '',
-            carrierName: row[10] || '',
-            carrierPhone: row[11] || '',
-            vehicleNumber: row[12] || '',
-            dispatchDate: row[13] || '',
-            expectedReturn: row[14] || '',
-            actualReturn: row[15] || '',
-            status: row[16] || 'Draft',
-            pmApprover: row[17] || '',
-            approvalDate: row[18] || '',
-            notes: row[19] || '',
-            createdDate: row[20] || '',
-            fromAddress: row[21] || '',
-            toAddress: row[22] || ''
-        })).filter(row => row.dcNumber && (row.status || '').toLowerCase() !== 'deleted');
+        dcData = rows.map((row, index) => {
+            const noteFields = splitDCNotesAndExecutor(row[19] || '', row[23] || '');
+
+            return {
+                // Keep exact spreadsheet row index even if there are blank rows in between.
+                rowIndex: index + 2,
+                dcNumber: (row[0] || '').trim(),
+                eventName: row[1] || '',
+                activity: row[2] || '',
+                eventDate: row[3] || '',
+                eventLocation: row[4] || '',
+                clientName: row[5] || '',
+                clientPOC: row[6] || '',
+                clientPhone: row[7] || '',
+                sitePOC: row[8] || '',
+                sitePhone: row[9] || '',
+                carrierName: row[10] || '',
+                carrierPhone: row[11] || '',
+                vehicleNumber: row[12] || '',
+                dispatchDate: row[13] || '',
+                expectedReturn: row[14] || '',
+                actualReturn: row[15] || '',
+                status: row[16] || 'Draft',
+                pmApprover: row[17] || '',
+                approvalDate: row[18] || '',
+                notes: noteFields.notes,
+                createdDate: row[20] || '',
+                fromAddress: row[21] || '',
+                toAddress: row[22] || '',
+                executorName: noteFields.executorName
+            };
+        }).filter(row => row.dcNumber && (row.status || '').toLowerCase() !== 'deleted');
 
         filteredDCs = [...dcData];
         updateDCList();
@@ -1513,6 +1538,7 @@ async function createDC(e) {
         vehicleNumber: document.getElementById('dcVehicleNumber').value || '',
         dispatchDate: document.getElementById('dcDispatchDate').value || '',
         expectedReturn: document.getElementById('dcExpectedReturn').value,
+        executorName: document.getElementById('dcExecutorName').value || '',
         actualReturn: '',
         status: 'Draft',
         pmApprover: '',
@@ -1697,6 +1723,10 @@ function viewDCDetail(dcNumber) {
                     <span class="dc-detail-field-label">Actual Return</span>
                     <span class="dc-detail-field-value">${dc.actualReturn || '-'}</span>
                 </div>
+                <div class="dc-detail-field">
+                    <span class="dc-detail-field-label">Executor</span>
+                    <span class="dc-detail-field-value">${dc.executorName || '-'}</span>
+                </div>
             </div>
         </div>
         
@@ -1759,6 +1789,7 @@ async function editDC(dcNumber) {
     document.getElementById('dcVehicleNumber').value = dc.vehicleNumber || '';
     document.getElementById('dcDispatchDate').value = dc.dispatchDate || '';
     document.getElementById('dcExpectedReturn').value = dc.expectedReturn || '';
+    document.getElementById('dcExecutorName').value = dc.executorName || '';
     document.getElementById('dcNotes').value = dc.notes || '';
     document.getElementById('dcFromAddress').value = dc.fromAddress || '';
     document.getElementById('dcToAddress').value = dc.toAddress || '';
@@ -2144,6 +2175,7 @@ async function downloadPDF(dcNumber) {
         expectedReturn: escapeHtml(dc.expectedReturn || '-'),
         carrierName: escapeHtml(dc.carrierName || '-'),
         vehicleNumber: escapeHtml(dc.vehicleNumber || ''),
+        executorName: escapeHtml(dc.executorName || '-'),
         pmApprover: escapeHtml(dc.pmApprover || '-'),
         notes: escapeHtml(dc.notes || '')
     };
@@ -2240,7 +2272,7 @@ async function downloadPDF(dcNumber) {
                         <td style="width:20%"><div class="label">Dispatch Date</div><div class="value">${pdfFields.dispatchDate}</div></td>
                         <td style="width:20%"><div class="label">Expected Return</div><div class="value">${pdfFields.expectedReturn}</div></td>
                         <td style="width:20%"><div class="label">Carrier / Vehicle</div><div class="value">${pdfFields.carrierName}<br>${pdfFields.vehicleNumber}</div></td>
-                        <td style="width:20%"><div class="label">Event Executor</div><div class="value">${pdfFields.sitePOC}</div></td>
+                        <td style="width:20%"><div class="label">Event Executor</div><div class="value">${pdfFields.executorName}</div></td>
                         <td style="width:20%"><div class="label">DC Approver</div><div class="value">${pdfFields.pmApprover}</div></td>
                     </tr>
                 </table>

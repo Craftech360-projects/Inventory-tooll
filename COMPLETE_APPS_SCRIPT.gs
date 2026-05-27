@@ -151,7 +151,7 @@ function doPost(e) {
       let dcSheet = ss.getSheetByName('DeliveryChannels');
       if (!dcSheet) {
         dcSheet = ss.insertSheet('DeliveryChannels');
-        dcSheet.appendRow(['DC Number', 'Event Name', 'Activity', 'Event Date', 'Event Location', 'Client Name', 'Client POC', 'Client Phone', 'Site POC', 'Site Phone', 'Carrier Name', 'Carrier Phone', 'Vehicle Number', 'Dispatch Date', 'Expected Return', 'Actual Return', 'Status', 'PM Approver', 'Approval Date', 'Notes', 'Created Date', 'From Address', 'To Address']);
+        dcSheet.appendRow(['DC Number', 'Event Name', 'Activity', 'Event Date', 'Event Location', 'Client Name', 'Client POC', 'Client Phone', 'Site POC', 'Site Phone', 'Carrier Name', 'Carrier Phone', 'Vehicle Number', 'Dispatch Date', 'Expected Return', 'Actual Return', 'Status', 'PM Approver', 'Approval Date', 'Notes', 'Created Date', 'From Address', 'To Address', 'Event Executor']);
       }
       
       dcSheet.appendRow([
@@ -177,7 +177,8 @@ function doPost(e) {
         data.notes || '',
         data.createdDate,
         data.fromAddress || '',
-        data.toAddress || ''
+        data.toAddress || '',
+        data.executorName || data.eventExecutor || ''
       ]);
       
       // Add DC Items
