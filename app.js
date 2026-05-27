@@ -4521,6 +4521,60 @@ function renderEmployees() {
     }).join('');
 }
 
+function renderEmployees() {
+    const container = document.getElementById('employeesList');
+    const searchTerm = document.getElementById('employeeSearch')?.value?.toLowerCase() || '';
+
+    const filtered = employeesData.filter(emp =>
+        emp.name?.toLowerCase().includes(searchTerm) ||
+        emp.department?.toLowerCase().includes(searchTerm) ||
+        emp.role?.toLowerCase().includes(searchTerm)
+    );
+
+    if (filtered.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <h3>No Employees Found</h3>
+                <p>No matching employees were found in the employees table.</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = filtered.map(emp => {
+        const assets = employeeAssetsData.filter(a => a.empId === emp.empId && a.status === 'Active');
+        const assetCount = assets.length;
+
+        return `
+            <button type="button" class="employee-card" onclick="viewEmployeeDetail('${escapeHtml(emp.empId)}')">
+                <span class="employee-card-top">
+                    <span class="employee-avatar">${escapeHtml(employeeInitials(emp.name))}</span>
+                    <span class="employee-card-title">
+                        <span class="employee-card-name">${escapeHtml(emp.name || '-')}</span>
+                        <span class="employee-card-role">${escapeHtml(emp.role || 'Employee')}</span>
+                        <span class="employee-card-department">${escapeHtml(emp.department || 'No department')}</span>
+                    </span>
+                    <span class="employee-edit-pill">View</span>
+                </span>
+
+                <span class="employee-card-footer">
+                    <span class="employee-card-email">${escapeHtml(emp.email || emp.phone || '-')}</span>
+                    <span class="employee-asset-badge ${assetCount > 0 ? 'has-assets' : ''}">
+                        ${assetCount} Asset${assetCount !== 1 ? 's' : ''}
+                    </span>
+                </span>
+            </button>
+        `;
+    }).join('');
+}
+
+function employeeInitials(name = '') {
+    const words = String(name).trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return '-';
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+    return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+}
+
 function employeeAssetRows(assets, type) {
     return assets.map(asset => `
         <tr>

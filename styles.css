@@ -877,16 +877,18 @@ body {
 
 .employees-list {
     display: grid;
-    gap: 10px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 18px;
 }
 
 .employee-card {
     width: 100%;
+    min-height: 170px;
     display: flex;
+    flex-direction: column;
     justify-content: space-between;
-    align-items: center;
-    gap: 18px;
-    padding: 16px 18px;
+    gap: 12px;
+    padding: 16px;
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
@@ -902,9 +904,30 @@ body {
     border-color: var(--primary-light);
 }
 
-.employee-card-main {
+.employee-card-top {
     display: grid;
-    gap: 5px;
+    grid-template-columns: 42px 1fr auto;
+    gap: 12px;
+    align-items: start;
+    min-width: 0;
+}
+
+.employee-avatar {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-dark);
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 800;
+}
+
+.employee-card-title {
+    display: grid;
+    gap: 3px;
     min-width: 0;
 }
 
@@ -912,17 +935,48 @@ body {
     font-size: 16px;
     font-weight: 700;
     color: var(--text-primary);
+    line-height: 1.25;
 }
 
-.employee-card-meta,
-.employee-card-phone {
+.employee-card-role,
+.employee-card-department,
+.employee-card-email {
     color: var(--text-secondary);
     font-size: 13px;
+    line-height: 1.35;
+}
+
+.employee-card-department {
+    color: var(--primary-light);
+}
+
+.employee-edit-pill {
+    padding: 5px 9px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-dark);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.employee-card-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.employee-card-email {
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .employee-asset-badge {
     flex-shrink: 0;
-    min-width: 86px;
+    min-width: 78px;
     padding: 6px 10px;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
@@ -1059,6 +1113,10 @@ body {
     .stats-grid {
         grid-template-columns: repeat(2, 1fr);
     }
+
+    .employees-list {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
     
     .dashboard-grid {
         grid-template-columns: 1fr 1fr;
@@ -1108,8 +1166,7 @@ body {
     }
 
     .employee-assets-header,
-    .employee-detail-header,
-    .employee-card {
+    .employee-detail-header {
         align-items: stretch;
         flex-direction: column;
     }
@@ -1117,6 +1174,11 @@ body {
     .employee-stats,
     .employee-detail-stats {
         grid-template-columns: 1fr;
+    }
+
+    .employees-list {
+        grid-template-columns: 1fr;
+        gap: 12px;
     }
 
     .employee-asset-badge {
