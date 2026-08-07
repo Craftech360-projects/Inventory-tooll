@@ -42,18 +42,10 @@
                     <span class="nav-icon">&#x1F69A;</span>
                     <span>Delivery Channels</span>
                 </a>
-                <a href="#" class="nav-item" data-view="createDC">
-                    <span class="nav-icon">&#x1F4DD;</span>
-                    <span>Create DC</span>
-                </a>
                 <div class="nav-divider"></div>
                 <a href="#" class="nav-item" data-view="dailyLog">
                     <span class="nav-icon">&#x1F504;</span>
                     <span>Daily Log</span>
-                </a>
-                <a href="#" class="nav-item" data-view="checkoutItem">
-                    <span class="nav-icon">&#x1F4E4;</span>
-                    <span>Checkout Item</span>
                 </a>
                 <div class="nav-divider"></div>
                 <a href="#" class="nav-item" data-view="employeeAssets">
@@ -112,28 +104,28 @@
             <!-- Dashboard View -->
             <section id="dashboardView" class="view active">
                 <div class="stats-grid">
-                    <div class="stat-card">
+                    <div class="stat-card clickable" onclick="openStatDetail('Total Items', null)" title="View all items">
                         <div class="stat-icon">&#x1F4E6;</div>
                         <div class="stat-info">
                             <span class="stat-value" id="totalItems">0</span>
                             <span class="stat-label">Total Items</span>
                         </div>
                     </div>
-                    <div class="stat-card">
+                    <div class="stat-card clickable" onclick="openStatDetail('Available Items', 'Available')" title="View available items">
                         <div class="stat-icon">&#x2705;</div>
                         <div class="stat-info">
                             <span class="stat-value" id="availableItems">0</span>
                             <span class="stat-label">Available</span>
                         </div>
                     </div>
-                    <div class="stat-card">
+                    <div class="stat-card clickable" onclick="openStatDetail('Items In Use', 'In Use')" title="View items in use">
                         <div class="stat-icon">&#x1F527;</div>
                         <div class="stat-info">
                             <span class="stat-value" id="inUseItems">0</span>
                             <span class="stat-label">In Use</span>
                         </div>
                     </div>
-                    <div class="stat-card">
+                    <div class="stat-card clickable" onclick="openStatDetail('Total Value — All Items', null)" title="View all items">
                         <div class="stat-icon">&#x1F4B0;</div>
                         <div class="stat-info">
                             <span class="stat-value" id="totalValue">&#x20B9;0</span>
@@ -175,6 +167,7 @@
                             <option value="">All Status</option>
                             <option value="Available">Available</option>
                             <option value="In Use">In Use</option>
+                            <option value="Partial">Partially In Use</option>
                             <option value="Checked Out">Checked Out</option>
                             <option value="Maintenance">Maintenance</option>
                             <option value="Dead Stock">Dead Stock</option>
@@ -182,21 +175,57 @@
                     </div>
                     <button class="export-btn" onclick="exportData()">&#x1F4E5; Export CSV</button>
                 </div>
+                <div class="col-filter-banner" id="columnFilterBanner" style="display:none;">
+                    <span id="columnFilterBannerText"></span>
+                    <button onclick="clearAllColumnFilters('inventory')">&#8634; Reset all filters</button>
+                </div>
                 <div class="table-container">
                     <table class="inventory-table">
                         <thead>
                             <tr>
                                 <th>Item ID</th>
-                                <th>Name</th>
-                                <th>Category</th>
-                                <th>Qty</th>
-                                <th>Status</th>
-                                <th>Location</th>
-                                <th>Value</th>
+                                <th><span class="th-label">Name</span><button class="col-filter-btn" data-scope="inventory" data-col="name" onclick="openColumnFilter('inventory','name', this)" aria-label="Filter by name">&#9662;</button></th>
+                                <th><span class="th-label">Category</span><button class="col-filter-btn" data-scope="inventory" data-col="category" onclick="openColumnFilter('inventory','category', this)" aria-label="Filter by category">&#9662;</button></th>
+                                <th><span class="th-label">Qty</span><button class="col-filter-btn" data-scope="inventory" data-col="quantity" onclick="openColumnFilter('inventory','quantity', this)" aria-label="Sort by quantity">&#9662;</button></th>
+                                <th><span class="th-label">Status</span><button class="col-filter-btn" data-scope="inventory" data-col="status" onclick="openColumnFilter('inventory','status', this)" aria-label="Filter by status">&#9662;</button></th>
+                                <th><span class="th-label">Location</span><button class="col-filter-btn" data-scope="inventory" data-col="location" onclick="openColumnFilter('inventory','location', this)" aria-label="Filter by location">&#9662;</button></th>
+                                <th><span class="th-label">Value</span><button class="col-filter-btn" data-scope="inventory" data-col="value" onclick="openColumnFilter('inventory','value', this)" aria-label="Sort by value">&#9662;</button></th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="inventoryTableBody">
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Stat Detail View (drill-down from dashboard tiles) -->
+            <section id="statDetailView" class="view">
+                <div class="toolbar">
+                    <button class="btn-back" onclick="closeStatDetail()">&#x2190; Back</button>
+                    <div class="filter-group">
+                        <input type="text" id="statDetailSearch" placeholder="Search items..." onkeyup="filterStatDetail()">
+                    </div>
+                </div>
+                <div class="col-filter-banner" id="statDetailFilterBanner" style="display:none;">
+                    <span id="statDetailFilterBannerText"></span>
+                    <button onclick="clearAllColumnFilters('statDetail')">&#8634; Reset all filters</button>
+                </div>
+                <div class="table-container">
+                    <table class="inventory-table">
+                        <thead>
+                            <tr>
+                                <th>Item ID</th>
+                                <th><span class="th-label">Name</span><button class="col-filter-btn" data-scope="statDetail" data-col="name" onclick="openColumnFilter('statDetail','name', this)" aria-label="Filter by name">&#9662;</button></th>
+                                <th><span class="th-label">Category</span><button class="col-filter-btn" data-scope="statDetail" data-col="category" onclick="openColumnFilter('statDetail','category', this)" aria-label="Filter by category">&#9662;</button></th>
+                                <th><span class="th-label">Qty</span><button class="col-filter-btn" data-scope="statDetail" data-col="quantity" onclick="openColumnFilter('statDetail','quantity', this)" aria-label="Sort by quantity">&#9662;</button></th>
+                                <th><span class="th-label">Status</span><button class="col-filter-btn" data-scope="statDetail" data-col="status" onclick="openColumnFilter('statDetail','status', this)" aria-label="Filter by status">&#9662;</button></th>
+                                <th><span class="th-label">Location</span><button class="col-filter-btn" data-scope="statDetail" data-col="location" onclick="openColumnFilter('statDetail','location', this)" aria-label="Filter by location">&#9662;</button></th>
+                                <th><span class="th-label">Value</span><button class="col-filter-btn" data-scope="statDetail" data-col="value" onclick="openColumnFilter('statDetail','value', this)" aria-label="Sort by value">&#9662;</button></th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="statDetailTableBody">
                         </tbody>
                     </table>
                 </div>
@@ -328,8 +357,19 @@
                                     <input type="text" id="vendorGstin" maxlength="15" placeholder="15 digit GSTIN">
                                 </div>
                                 <div class="form-group">
-                                    <label>PAN</label>
-                                    <input type="text" id="vendorPan" maxlength="10" placeholder="10 character PAN">
+                                    <label>City</label>
+                                    <input type="text" id="vendorCity" placeholder="e.g., Bengaluru">
+                                </div>
+                                <div class="form-group">
+                                    <label>Category</label>
+                                    <select id="vendorCategory">
+                                        <option value="">Select Category</option>
+                                        <option value="IT Assets">IT Assets</option>
+                                        <option value="Electronics">Electronics</option>
+                                        <option value="Mechanical Division">Mechanical Division</option>
+                                        <option value="Office Assets">Office Assets</option>
+                                        <option value="Rented Equipment">&#x1F504; Rented Equipment</option>
+                                    </select>
                                 </div>
                                 <div class="form-group full-width">
                                     <label>Vendor Address</label>
@@ -345,7 +385,20 @@
                     <div class="card vendor-list-card">
                         <div class="vendor-list-header">
                             <h3>Vendor List</h3>
-                            <button class="btn-secondary vendor-refresh-btn" onclick="loadVendorData()">Refresh</button>
+                            <div class="header-actions-group">
+                                <div class="export-dropdown">
+                                    <button class="export-btn export-dropdown-toggle" onclick="toggleExportMenu('vendorExportMenu', event)">&#x1F4E5; Export &#x25B2;</button>
+                                    <div class="export-dropdown-menu" id="vendorExportMenu">
+                                        <button class="export-dropdown-item" onclick="exportVendorsCSV()">&#x1F4C4; Export CSV</button>
+                                        <button class="export-dropdown-item" onclick="exportVendorsPDF()">&#x1F4D5; Export PDF</button>
+                                    </div>
+                                </div>
+                                <div class="date-filter-wrap">
+                                    <button class="date-filter-toggle" id="vendorDateToggle" onclick="toggleDateFilterPanel('vendor', this)"><span class="date-filter-icon">&#x1F4C5;</span><span id="vendorDateLabel">All dates</span><span class="date-filter-caret">&#9662;</span></button>
+                                    <span class="date-filter-count" id="vendorDateLabelCount"></span>
+                                </div>
+                                <button class="btn-secondary vendor-refresh-btn" onclick="loadVendorData()">Refresh</button>
+                            </div>
                         </div>
                         <div class="table-container vendor-table-container">
                             <table class="inventory-table vendor-table">
@@ -355,14 +408,15 @@
                                         <th>Contact</th>
                                         <th>Email</th>
                                         <th>GSTIN</th>
-                                        <th>PAN</th>
+                                        <th>City</th>
+                                        <th>Category</th>
                                         <th>Address</th>
                                         <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="vendorTableBody">
                                     <tr>
-                                        <td colspan="7">No vendors loaded</td>
+                                        <td colspan="8">No vendors loaded</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -389,6 +443,10 @@
                         <input type="text" id="dcSearch" placeholder="Search by event/client..." onkeyup="filterDCs()">
                     </div>
                     <button class="btn-primary" onclick="switchView('createDC')">+ Create DC</button>
+                </div>
+                <div class="date-filter-wrap">
+                    <button class="date-filter-toggle" id="dcDateToggle" onclick="toggleDateFilterPanel('dc', this)"><span class="date-filter-icon">&#x1F4C5;</span><span id="dcDateLabel">All dates</span><span class="date-filter-caret">&#9662;</span></button>
+                    <span class="date-filter-count" id="dcDateLabelCount"></span>
                 </div>
                 <div class="dc-list" id="dcList">
                     <!-- DC cards will be populated here -->
@@ -544,9 +602,23 @@
                         <button class="pr-filter-btn" data-filter="Received">Received</button>
                         <button class="pr-filter-btn" data-filter="Closed">Closed</button>
                     </div>
-                    <button class="btn-new-pr" onclick="switchView('createPR')">+ New Request</button>
+                    <div class="header-actions-group">
+                        <div class="export-dropdown">
+                            <button class="export-btn export-dropdown-toggle" onclick="toggleExportMenu('prExportMenu', event)">&#x1F4E5; Export &#x25B2;</button>
+                            <div class="export-dropdown-menu" id="prExportMenu">
+                                <button class="export-dropdown-item" onclick="exportPRCSV()">&#x1F4C4; Export CSV</button>
+                                <button class="export-dropdown-item" onclick="exportPRPDF()">&#x1F4D5; Export PDF</button>
+                            </div>
+                        </div>
+                        <button class="btn-new-pr" onclick="switchView('createPR')">+ New Request</button>
+                    </div>
                 </div>
-                
+
+                <div class="date-filter-wrap">
+                    <button class="date-filter-toggle" id="prDateToggle" onclick="toggleDateFilterPanel('pr', this)"><span class="date-filter-icon">&#x1F4C5;</span><span id="prDateLabel">All dates</span><span class="date-filter-caret">&#9662;</span></button>
+                    <span class="date-filter-count" id="prDateLabelCount"></span>
+                </div>
+
                 <!-- PR List -->
                 <div class="pr-list" id="prList">
                     <!-- Will be populated dynamically -->
@@ -738,6 +810,17 @@
                             <input type="text" id="employeeSearch" placeholder="Search employees..." onkeyup="filterEmployees()">
                         </div>
                         <div class="employee-assets-actions">
+                            <div class="date-filter-wrap">
+                                <button class="date-filter-toggle" id="employeeDateToggle" onclick="toggleDateFilterPanel('employee', this)"><span class="date-filter-icon">&#x1F4C5;</span><span id="employeeDateLabel">All dates</span><span class="date-filter-caret">&#9662;</span></button>
+                                <span class="date-filter-count" id="employeeDateLabelCount"></span>
+                            </div>
+                            <div class="export-dropdown">
+                                <button class="export-btn export-dropdown-toggle" onclick="toggleExportMenu('employeeAssetsExportMenu', event)">&#x1F4E5; Export &#x25B2;</button>
+                                <div class="export-dropdown-menu" id="employeeAssetsExportMenu">
+                                    <button class="export-dropdown-item" onclick="exportEmployeeAssetsCSV()">&#x1F4C4; Export CSV</button>
+                                    <button class="export-dropdown-item" onclick="exportEmployeeAssetsPDF()">&#x1F4D5; Export PDF</button>
+                                </div>
+                            </div>
                             <button class="btn-primary" onclick="openAssignAsset()">+ Assign Asset</button>
                         </div>
                     </div>
@@ -827,6 +910,10 @@
                         <button class="build-filter-btn" data-filter="Cancelled" onclick="filterBuilds('Cancelled')">&#x274C; Cancelled</button>
                     </div>
                     <button class="btn-primary" onclick="switchView('createBuild')">+ New Build</button>
+                </div>
+                <div class="date-filter-wrap">
+                    <button class="date-filter-toggle" id="buildDateToggle" onclick="toggleDateFilterPanel('build', this)"><span class="date-filter-icon">&#x1F4C5;</span><span id="buildDateLabel">All dates</span><span class="date-filter-caret">&#9662;</span></button>
+                    <span class="date-filter-count" id="buildDateLabelCount"></span>
                 </div>
                 <div id="buildsList" class="builds-list">
                     <!-- Builds will be loaded here -->

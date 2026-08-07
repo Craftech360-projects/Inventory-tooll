@@ -20,6 +20,18 @@ create index if not exists vendors_gstin_idx
 create index if not exists vendors_pan_idx
   on public.vendors ("PAN");
 
+-- The Vendors screen no longer collects PAN; the column above is left in
+-- place (unused) rather than dropped, so no existing data is lost.
+-- Run this block once to add the City and Category fields the form now has:
+alter table public.vendors
+  add column if not exists "City" text;
+
+alter table public.vendors
+  add column if not exists "Category" text;
+
+create index if not exists vendors_category_idx
+  on public.vendors ("Category");
+
 -- Current app tables continue storing the selected vendor name/contact in
 -- items and purchase_requests. For stricter reporting later, add a vendor key
 -- column to those tables and backfill it from the selected vendor name:

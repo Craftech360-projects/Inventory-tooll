@@ -188,7 +188,8 @@ function vendorRow(vendor) {
     Email: vendor.email || '',
     'Vendor Address': vendor.address || vendor.vendorAddress || '',
     GSTIN: vendor.gstin || '',
-    PAN: vendor.pan || '',
+    City: vendor.city || '',
+    Category: vendor.category || '',
     'Created Date': vendor.createdDate || new Date().toISOString().slice(0, 10)
   };
 }
@@ -321,6 +322,35 @@ async function adjustItemQuantity(itemId, delta) {
   await updateById('items', 'Item ID', itemId, { Quantity: Math.max(0, current + delta) });
 }
 
+const LIFECYCLE_STATUSES = new Set(['Available', 'In Use', 'Partial']);
+
+function computeLifecycleStatus(quantity, inUseQty) {
+  if (inUseQty <= 0) return 'Available';
+  if (inUseQty >= quantity) return 'In Use';
+  return 'Partial';
+}
+
+// Adjusts how many units of an item are checked out, instead of flipping
+// the whole item's Status. Leaves manual states (Checked Out/Maintenance/
+// Dead Stock) alone so this can't clobber an operator's override.
+async function adjustItemInUseQty(itemId, delta) {
+  const rows = await select('items', { filters: { 'Item ID': filterEq(itemId) } });
+  const item = Array.isArray(rows) ? rows[0] : null;
+  if (!item) return;
+
+  const quantity = parseInt(item.Quantity, 10) || 0;
+  const current = parseInt(item['In Use Qty'], 10) || 0;
+  const next = Math.max(0, Math.min(quantity, current + delta));
+
+  const updates = { 'In Use Qty': next };
+  const currentStatus = item.Status || 'Available';
+  if (LIFECYCLE_STATUSES.has(currentStatus)) {
+    updates.Status = computeLifecycleStatus(quantity, next);
+  }
+
+  await updateById('items', 'Item ID', itemId, updates);
+}
+
 async function generateResultItemId(category) {
   const prefix = CATEGORY_PREFIXES[category] || 'ITM';
   const rows = await select('items', { filters: { Category: filterEq(category) } });
@@ -429,8 +459,16 @@ async function handleAction(action, data) {
   }
 
   if (action === 'updateItemsStatus') {
-    for (const itemId of data.itemIds || []) {
-      await updateById('items', 'Item ID', itemId, { Status: data.status || 'Available' });
+    // items: [{ itemId, qty }] — qty is how many units are moving, not the
+    // item's total quantity. direction picks which way they move.
+    const direction = data.direction === 'checkin' ? -1 : 1;
+    const items = Array.isArray(data.items) && data.items.length > 0
+      ? data.items
+      : (data.itemIds || []).map(itemId => ({ itemId, qty: 1 }));
+
+    for (const entry of items) {
+      const qty = parseInt(entry.qty, 10) || 1;
+      await adjustItemInUseQty(entry.itemId, direction * qty);
     }
     return { success: true };
   }
@@ -572,7 +610,7 @@ async function handleAction(action, data) {
     });
 
     if (assignment.itemId) {
-      await updateById('items', 'Item ID', assignment.itemId, { Status: 'In Use' });
+      await adjustItemInUseQty(assignment.itemId, 1);
     }
 
     return { success: true, id: assignment.id };
@@ -601,7 +639,7 @@ async function handleAction(action, data) {
     });
 
     if (returnedItemId) {
-      await updateById('items', 'Item ID', returnedItemId, { Status: 'Available' });
+      await adjustItemInUseQty(returnedItemId, -1);
     }
 
     return { success: true };

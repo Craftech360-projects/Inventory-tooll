@@ -231,6 +231,16 @@ body {
     border: 1px solid var(--border);
 }
 
+.stat-card.clickable {
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.stat-card.clickable:hover {
+    border-color: var(--primary);
+    transform: translateY(-2px);
+}
+
 .stat-icon {
     width: 56px;
     height: 56px;
@@ -429,6 +439,64 @@ body {
     background: var(--primary);
 }
 
+.header-actions-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.export-dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.export-dropdown-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.export-dropdown-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 30;
+    min-width: 170px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+}
+
+.export-dropdown-menu.active {
+    display: block;
+}
+
+.export-dropdown-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-primary);
+    font-size: 14px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.export-dropdown-item:last-child {
+    border-bottom: 0;
+}
+
+.export-dropdown-item:hover {
+    background: var(--bg-hover);
+}
+
 /* Table */
 .table-container {
     background: var(--bg-card);
@@ -480,9 +548,16 @@ body {
 
 .status-available { background: rgba(34, 197, 94, 0.2); color: var(--success); }
 .status-in-use { background: rgba(59, 130, 246, 0.2); color: var(--info); }
+.status-partial { background: rgba(168, 85, 247, 0.2); color: #a855f7; }
 .status-checked-out { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
 .status-maintenance { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
 .status-dead-stock { background: rgba(100, 116, 139, 0.2); color: var(--text-muted); }
+
+.status-split {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
 
 .action-btn {
     padding: 6px 12px;
@@ -830,6 +905,8 @@ body {
 .employee-assets-actions {
     display: flex;
     justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
 }
 
 .employee-search-wrap input {
@@ -3621,4 +3698,441 @@ body {
 
 .btn-delete-dc:hover {
     background: rgba(239, 68, 68, 0.1);
+}
+
+/* ==================== DATE RANGE FILTER ==================== */
+/* Compact dropdown used by Delivery Channels, Purchase Requests,
+   Product Builds, Vendors and Employee Assets. */
+
+.date-filter-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    vertical-align: middle;
+}
+
+/* Standalone on Delivery Channels / Purchase Requests / Product Builds, where
+   it sits on its own line above the list. Nested copies inside a toolbar row
+   (Vendors, Employee Assets) keep the row's own spacing. */
+.view > .date-filter-wrap {
+    display: flex;
+    margin-bottom: 24px;
+}
+
+/* Metrics match .export-btn so the control lines up with its neighbours. */
+.date-filter-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-family: inherit;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+/* Each child is its own flex box with line-height 1, so the emoji's tall
+   intrinsic line box can't drag the text off centre. */
+.date-filter-toggle > * {
+    display: inline-flex;
+    align-items: center;
+    line-height: 1;
+}
+
+.date-filter-toggle:hover,
+.date-filter-toggle.open {
+    border-color: var(--primary);
+    color: var(--text-primary);
+}
+
+.date-filter-toggle.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+    font-weight: 600;
+}
+
+.date-filter-icon {
+    font-size: 15px;
+    /* Emoji sit slightly high in most fonts; nudge back onto the text centre. */
+    transform: translateY(0.5px);
+}
+
+.date-filter-caret {
+    font-size: 10px;
+    opacity: 0.7;
+    /* Fixed box so the label never shifts as the caret glyph changes. */
+    width: 10px;
+    justify-content: center;
+}
+
+.date-filter-count {
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.date-filter-panel {
+    position: absolute;
+    z-index: 1000;
+    width: 260px;
+    max-width: calc(100vw - 16px);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow);
+    padding: 12px;
+}
+
+.date-filter-head {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+}
+
+.date-filter-presets {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.date-preset-btn {
+    padding: 7px 10px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.date-preset-btn:hover {
+    border-color: var(--primary);
+    color: var(--text-primary);
+}
+
+.date-preset-btn.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+}
+
+.date-filter-custom {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.date-filter-custom label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+/* The native picker renders on a white canvas unless the control is told the
+   surface is dark — hence color-scheme, not just background/color. */
+.date-filter-custom input[type="date"] {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    color-scheme: dark;
+}
+
+.date-filter-custom input[type="date"]:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.date-filter-custom input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+    opacity: 0.6;
+    cursor: pointer;
+}
+
+.date-filter-custom input[type="date"]::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+}
+
+.date-filter-reset {
+    width: 100%;
+    margin-top: 12px;
+    padding: 8px;
+    background: transparent;
+    border: 1px solid var(--primary);
+    border-radius: var(--radius-sm);
+    color: var(--primary);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.date-filter-reset:hover:not(:disabled) {
+    background: var(--primary);
+    color: #fff;
+}
+
+.date-filter-reset:disabled {
+    border-color: var(--border);
+    color: var(--text-muted);
+    opacity: 0.5;
+    cursor: default;
+}
+
+/* ==================== INVENTORY COLUMN FILTERS ==================== */
+
+.inventory-table th .th-label {
+    margin-right: 6px;
+    vertical-align: middle;
+}
+
+/* Header cells now hold a 22px control — stop the row collapsing around it. */
+.inventory-table th:has(.col-filter-btn) {
+    white-space: nowrap;
+    padding-top: 8px;
+    padding-bottom: 8px;
+}
+
+.col-filter-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    vertical-align: middle;
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 15px;
+    line-height: 1;
+    padding: 0;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.col-filter-btn:hover,
+.col-filter-btn.open {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+}
+
+.col-filter-btn.filtered,
+.col-filter-btn.sorted {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+    font-weight: 700;
+}
+
+.col-filter-panel {
+    position: absolute;
+    z-index: 1000;
+    width: 280px;
+    max-width: calc(100vw - 16px);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow);
+    padding: 10px;
+}
+
+.col-filter-head {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+
+.col-filter-sort {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+.col-filter-sort-btn {
+    text-align: left;
+    padding: 6px 8px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.col-filter-sort-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.col-filter-sort-btn.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+}
+
+.col-filter-search {
+    width: 100%;
+    padding: 7px 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 13px;
+    margin-bottom: 8px;
+}
+
+.col-filter-search:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.col-filter-actions {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.col-filter-actions button {
+    flex: 1;
+    padding: 5px 8px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.col-filter-actions button:hover:not(:disabled) {
+    border-color: var(--primary);
+    color: var(--text-primary);
+}
+
+.col-filter-actions button:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+/* Reset only lights up once there is something to reset. */
+.col-filter-reset:not(:disabled) {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.col-filter-list {
+    max-height: 240px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.col-filter-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    font-size: 13px;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.col-filter-option:hover {
+    background: var(--bg-hover);
+}
+
+.col-filter-option input[type="checkbox"] {
+    flex-shrink: 0;
+    cursor: pointer;
+    accent-color: var(--primary);
+}
+
+.col-filter-option-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.col-filter-option-count {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.col-filter-empty {
+    padding: 16px 8px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.col-filter-foot {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.col-filter-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 14px;
+    margin-bottom: 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--primary);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.col-filter-banner button {
+    margin-left: auto;
+    padding: 6px 16px;
+    background: var(--primary);
+    border: 1px solid var(--primary);
+    border-radius: var(--radius-sm);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.col-filter-banner button:hover {
+    background: var(--primary-dark);
+    border-color: var(--primary-dark);
 }

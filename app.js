@@ -56,6 +56,7 @@ const CATEGORY_COLORS = {
 const STATUS_COLORS = {
     'Available': '#22c55e',
     'In Use': '#3b82f6',
+    'Partial': '#a855f7',
     'Checked Out': '#f59e0b',
     'Maintenance': '#ef4444',
     'Dead Stock': '#64748b'
@@ -78,7 +79,8 @@ const INVENTORY_PARSE_STATUSES = [
     'Maintenance',
     'Available',
     'Dead Stock',
-    'In Use'
+    'In Use',
+    'Partial'
 ];
 
 const SUB_CATEGORIES = {
@@ -427,13 +429,16 @@ function mapRowsToInventoryItems(rows) {
 
         if (!itemId) continue;
 
+        const quantity = parseInt(row[4], 10) || 0;
+        const inUseQty = Math.max(0, Math.min(quantity, parseInt(row[16], 10) || 0));
+
         items.push({
             rowIndex: i + 1,
             itemId,
             name: row[1] || '',
             category: normalizeInventoryCategory(row[2] || ''),
             subCategory: row[3] || '',
-            quantity: parseInt(row[4], 10) || 0,
+            quantity,
             status: row[5] || 'Available',
             location: row[6] || '',
             value: parseInt(row[7], 10) || 0,
@@ -444,7 +449,9 @@ function mapRowsToInventoryItems(rows) {
             vendorName: row[12] || '',
             vendorContact: row[13] || '',
             rentalCost: parseInt(row[14], 10) || 0,
-            deposit: parseInt(row[15], 10) || 0
+            deposit: parseInt(row[15], 10) || 0,
+            inUseQty,
+            availableQty: quantity - inUseQty
         });
     }
 
@@ -474,8 +481,9 @@ function mapRowsToVendors(rows) {
             email: row[2] || '',
             address: row[3] || '',
             gstin: row[4] || '',
-            pan: row[5] || '',
-            createdDate: row[6] || ''
+            city: row[5] || '',
+            category: row[6] || '',
+            createdDate: row[7] || ''
         }));
 }
 
@@ -497,6 +505,22 @@ async function loadVendorData() {
         populatePurchaseRequestVendorOptions();
         renderVendorTable('Vendor table is not available yet. Apply the database plan, then refresh.');
     }
+}
+
+function vendorExportRows() {
+    return vendorData
+        .filter(v => matchesDateFilter('vendor', v.createdDate))
+        .map(v => [v.name, v.contactNumber, v.email, v.gstin, v.city, v.category, v.address]);
+}
+
+function exportVendorsCSV() {
+    const headers = ['Vendor Name', 'Contact', 'Email', 'GSTIN', 'City', 'Category', 'Address'];
+    downloadCSV(`cft-vendors-${todayStamp()}.csv`, headers, vendorExportRows());
+}
+
+function exportVendorsPDF() {
+    const headers = ['Vendor Name', 'Contact', 'Email', 'GSTIN', 'City', 'Category', 'Address'];
+    downloadTableAsPDF('Vendor List', `cft-vendors-${todayStamp()}.pdf`, headers, vendorExportRows());
 }
 
 function populateVendorSelects() {
@@ -562,22 +586,36 @@ function renderVendorTable(message = '') {
     if (!tbody) return;
 
     if (message) {
-        tbody.innerHTML = `<tr><td colspan="7">${escapeHtml(message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8">${escapeHtml(message)}</td></tr>`;
         return;
     }
 
     if (vendorData.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7">No vendors added yet</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8">No vendors added yet</td></tr>';
         return;
     }
 
-    tbody.innerHTML = vendorData.map((vendor, index) => `
+    // Keep the original index — the Delete button addresses vendorData directly,
+    // so filtering must not renumber the rows.
+    const rows = vendorData
+        .map((vendor, index) => ({ vendor, index }))
+        .filter(({ vendor }) => matchesDateFilter('vendor', vendor.createdDate));
+
+    updateDateFilterCount('vendor', rows.length, vendorData.length);
+
+    if (rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8">No vendors match the selected dates</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = rows.map(({ vendor, index }) => `
         <tr>
             <td><span class="vendor-name-cell">${escapeHtml(vendor.name)}</span></td>
             <td><span class="vendor-contact-cell">${escapeHtml(vendor.contactNumber)}</span></td>
             <td>${escapeHtml(vendor.email || '-')}</td>
             <td><span class="vendor-code-cell">${escapeHtml(vendor.gstin || '-')}</span></td>
-            <td><span class="vendor-code-cell">${escapeHtml(vendor.pan || '-')}</span></td>
+            <td>${escapeHtml(vendor.city || '-')}</td>
+            <td>${escapeHtml(vendor.category || '-')}</td>
             <td><span class="vendor-address-cell">${escapeHtml(vendor.address || '-')}</span></td>
             <td>
                 <button type="button" class="action-btn vendor-delete-btn" onclick="deleteVendor(${index})">Delete</button>
@@ -595,7 +633,8 @@ async function saveVendor(event) {
         email: document.getElementById('vendorEmail').value.trim(),
         address: document.getElementById('vendorAddress').value.trim(),
         gstin: document.getElementById('vendorGstin').value.trim().toUpperCase(),
-        pan: document.getElementById('vendorPan').value.trim().toUpperCase(),
+        city: document.getElementById('vendorCity').value.trim(),
+        category: document.getElementById('vendorCategory').value,
         createdDate: new Date().toISOString().split('T')[0]
     };
 
@@ -731,8 +770,9 @@ async function loadData() {
 function updateDashboard() {
     // Stats
     const totalItems = inventoryData.reduce((sum, item) => sum + item.quantity, 0);
-    const availableItems = inventoryData.filter(i => i.status === 'Available').reduce((sum, item) => sum + item.quantity, 0);
-    const inUseItems = inventoryData.filter(i => i.status === 'In Use').reduce((sum, item) => sum + item.quantity, 0);
+    const lifecycleItems = inventoryData.filter(i => i.status === 'Available' || i.status === 'In Use' || i.status === 'Partial');
+    const availableItems = lifecycleItems.reduce((sum, item) => sum + item.availableQty, 0);
+    const inUseItems = lifecycleItems.reduce((sum, item) => sum + item.inUseQty, 0);
     const totalValue = inventoryData.reduce((sum, item) => sum + (item.value * item.quantity), 0);
     
     document.getElementById('totalItems').textContent = totalItems;
@@ -838,12 +878,27 @@ function updateInventoryTable() {
     `).join('');
 }
 
-function renderInventoryTableRow(item) {
+function renderStatusCell(item) {
     const statusText = String(item.status || 'Available').trim() || 'Available';
+    const isLifecycleStatus = statusText === 'Available' || statusText === 'In Use' || statusText === 'Partial';
+    const inUseQty = Number(item.inUseQty) || 0;
+    const availableQty = Number(item.availableQty) || 0;
+
+    if (isLifecycleStatus && inUseQty > 0 && availableQty > 0) {
+        return `<div class="status-split">
+            <span class="status-badge status-available">${availableQty} Available</span>
+            <span class="status-badge status-in-use">${inUseQty} In Use</span>
+        </div>`;
+    }
+
     const statusClass = statusText
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '');
+    return `<span class="status-badge status-${statusClass}">${escapeHtml(statusText)}</span>`;
+}
+
+function renderInventoryTableRow(item) {
     const value = Number(item.value) || 0;
 
     return `
@@ -852,7 +907,7 @@ function renderInventoryTableRow(item) {
             <td>${escapeHtml(item.name)}</td>
             <td>${CATEGORY_ICONS[item.category] || '\u{1F4E6}'} ${escapeHtml(item.category)}</td>
             <td>${escapeHtml(item.quantity)}</td>
-            <td><span class="status-badge status-${statusClass}">${escapeHtml(statusText)}</span></td>
+            <td>${renderStatusCell(item)}</td>
             <td>${escapeHtml(item.location || '-')}</td>
             <td>&#8377;${value.toLocaleString('en-IN')}</td>
             <td><button class="action-btn" onclick="editItem(${Number(item.rowIndex) || 0})">&#9998; Edit</button></td>
@@ -883,28 +938,66 @@ function updateCategoriesView() {
 
 // Filter Items
 function filterItems() {
-    const search = document.getElementById('globalSearch').value.toLowerCase();
-    const category = document.getElementById('categoryFilter')?.value || '';
-    const status = document.getElementById('statusFilter')?.value || '';
-    
-    filteredData = inventoryData.filter(item => {
-        const matchSearch = !search || 
-            item.name.toLowerCase().includes(search) ||
-            item.itemId.toLowerCase().includes(search) ||
-            item.category.toLowerCase().includes(search);
-        const matchCategory = !category || item.category === category;
-        const matchStatus = !status || item.status === status;
-        
-        return matchSearch && matchCategory && matchStatus;
-    });
-    
+    // Search + toolbar selects, then the per-column dropdowns, then sort.
+    // See the TABLE COLUMN FILTERS section for the column layer.
+    filteredData = applyColumnPipeline('inventory');
+
     updateInventoryTable();
+    updateColumnFilterIndicators('inventory');
 }
 
 function filterByCategory(category) {
     document.getElementById('categoryFilter').value = category;
     switchView('inventory');
     filterItems();
+}
+
+// Stat Detail View (drill-down from dashboard tiles)
+let statDetailPreviousView = 'dashboard';
+let statDetailBaseData = [];
+
+function openStatDetail(title, status) {
+    const activeView = document.querySelector('.view.active');
+    statDetailPreviousView = activeView ? activeView.id.replace('View', '') : 'dashboard';
+
+    const isLifecycle = i => i.status === 'Available' || i.status === 'In Use' || i.status === 'Partial';
+    if (status === 'Available') {
+        statDetailBaseData = inventoryData.filter(i => isLifecycle(i) && i.availableQty > 0);
+    } else if (status === 'In Use') {
+        statDetailBaseData = inventoryData.filter(i => isLifecycle(i) && i.inUseQty > 0);
+    } else {
+        statDetailBaseData = inventoryData.slice();
+    }
+
+    switchView('statDetail');
+    document.getElementById('pageTitle').textContent = title;
+    document.getElementById('statDetailSearch').value = '';
+    // Each drill-down starts clean — carrying filters over from the last tile
+    // would silently hide rows the user never filtered.
+    clearAllColumnFilters('statDetail');
+}
+
+let statDetailFiltered = [];
+
+function filterStatDetail() {
+    // Search, then the per-column dropdowns, then sort — same pipeline as the
+    // All Items table, just over the drill-down's base rows.
+    statDetailFiltered = applyColumnPipeline('statDetail');
+    renderStatDetailTable(statDetailFiltered);
+    updateColumnFilterIndicators('statDetail');
+}
+
+function renderStatDetailTable(data) {
+    const tbody = document.getElementById('statDetailTableBody');
+    if (data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px; color: var(--text-muted);">No items found</td></tr>';
+        return;
+    }
+    tbody.innerHTML = data.map(renderInventoryTableRow).join('');
+}
+
+function closeStatDetail() {
+    switchView(statDetailPreviousView || 'dashboard');
 }
 
 // Add Item
@@ -1153,6 +1246,98 @@ function exportData() {
     showToast('Exported to CSV!', 'success');
 }
 
+// Export dropdown menus (Vendors / Purchase Requests / Employee Assets)
+function toggleExportMenu(menuId, event) {
+    if (event) event.stopPropagation();
+    const menu = document.getElementById(menuId);
+    const wasActive = menu.classList.contains('active');
+    document.querySelectorAll('.export-dropdown-menu.active').forEach(m => m.classList.remove('active'));
+    if (!wasActive) menu.classList.add('active');
+}
+
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.export-dropdown')) {
+        document.querySelectorAll('.export-dropdown-menu.active').forEach(m => m.classList.remove('active'));
+    }
+});
+
+function todayStamp() {
+    return new Date().toISOString().split('T')[0];
+}
+
+function downloadCSV(filename, headers, rows) {
+    const csv = [headers, ...rows]
+        .map(row => row.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+        .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    showToast('Exported to CSV!', 'success');
+}
+
+function downloadTableAsPDF(title, filename, headers, rows) {
+    const tableHtml = `
+        <div style="padding:24px; font-family: Arial, sans-serif; color:#1a1a1a;">
+            <h2 style="margin:0 0 16px;">${escapeHtml(title)}</h2>
+            <table style="width:100%; border-collapse:collapse; font-size:12px;">
+                <thead>
+                    <tr>${headers.map(h => `<th style="border:1px solid #ccc; padding:6px 8px; background:#f0f0f0; text-align:left;">${escapeHtml(h)}</th>`).join('')}</tr>
+                </thead>
+                <tbody>
+                    ${rows.map(row => `<tr>${row.map(cell => `<td style="border:1px solid #ccc; padding:6px 8px;">${escapeHtml(String(cell ?? ''))}</td>`).join('')}</tr>`).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+
+    // html2canvas measures this element's rendered height as 0 if the element
+    // itself is position:fixed/absolute (even off-screen) — keep it in normal
+    // static flow and hide/offset it via a zero-size fixed wrapper instead.
+    const wrapper = document.createElement('div');
+    wrapper.style.position = 'fixed';
+    wrapper.style.left = '0';
+    wrapper.style.top = '0';
+    wrapper.style.width = '0';
+    wrapper.style.height = '0';
+    wrapper.style.overflow = 'visible';
+    wrapper.style.opacity = '0';
+    wrapper.style.pointerEvents = 'none';
+
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = tableHtml;
+    tempDiv.style.width = '1100px';
+    wrapper.appendChild(tempDiv);
+    document.body.appendChild(wrapper);
+
+    const opt = {
+        margin: [10, 10, 10, 10],
+        filename,
+        image: { type: 'jpeg', quality: 0.98 },
+        // width/windowWidth pin the capture to tempDiv's own width; without
+        // x/y, html2canvas centers a page-sized crop window inside the full
+        // (wider) document instead of starting at this element's origin,
+        // silently cutting off the left-most column(s).
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', width: 1100, windowWidth: 1100, x: 0, y: 0 },
+        pagebreak: { mode: ['css', 'legacy'] },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
+    };
+
+    html2pdf().set(opt).from(tempDiv).save().then(() => {
+        document.body.removeChild(wrapper);
+        showToast('PDF downloaded!', 'success');
+    }).catch(err => {
+        console.error('PDF generation error:', err);
+        document.body.removeChild(wrapper);
+        showToast('PDF export failed', 'error');
+    });
+}
+
 // Toast
 function showToast(message, type = 'success') {
     const toast = document.getElementById('toast');
@@ -1363,13 +1548,15 @@ function filterDCs() {
     
     filteredDCs = dcData.filter(dc => {
         const matchStatus = !status || dc.status === status;
-        const matchSearch = !search || 
+        const matchSearch = !search ||
             dc.eventName.toLowerCase().includes(search) ||
             dc.clientName.toLowerCase().includes(search) ||
             dc.dcNumber.toLowerCase().includes(search);
-        return matchStatus && matchSearch;
+        const matchDate = matchesDateFilter('dc', dc.eventDate);
+        return matchStatus && matchSearch && matchDate;
     });
-    
+
+    updateDateFilterCount('dc', filteredDCs.length, dcData.length);
     updateDCList();
 }
 
@@ -1378,21 +1565,20 @@ function populateAvailableItems() {
     const container = document.getElementById('availableItemsList');
     if (!container) return;
     
-    const availableItems = inventoryData.filter(item => 
-        item.status === 'Available' &&
+    const availableItems = inventoryData.filter(item =>
         item.category !== 'Dead Stock' &&
-        (parseInt(item.quantity, 10) || 0) > 0
+        (parseInt(item.availableQty, 10) || 0) > 0
     );
-    
+
     container.innerHTML = availableItems.map(item => `
         <div class="item-row" onclick="toggleItemSelection('${item.itemId}')" id="avail-${item.itemId}">
             <div class="item-row-info">
                 <div class="item-row-name">${item.name}</div>
-                <div class="item-row-meta">${item.itemId} • ${item.category} • Qty: ${item.quantity}</div>
+                <div class="item-row-meta">${item.itemId} • ${item.category} • Avail: ${item.availableQty} / ${item.quantity}</div>
             </div>
             <div class="item-row-qty">
-                <input type="number" min="1" max="${item.quantity}" value="1" 
-                       onclick="event.stopPropagation()" 
+                <input type="number" min="1" max="${item.availableQty}" value="1"
+                       onclick="event.stopPropagation()"
                        id="qty-${item.itemId}">
             </div>
         </div>
@@ -1403,25 +1589,24 @@ function populateAvailableItems() {
 function filterAvailableItems() {
     const search = document.getElementById('itemSearchDC')?.value.toLowerCase() || '';
     const container = document.getElementById('availableItemsList');
-    
-    const availableItems = inventoryData.filter(item => 
-        item.status === 'Available' && 
+
+    const availableItems = inventoryData.filter(item =>
         item.category !== 'Dead Stock' &&
-        (parseInt(item.quantity, 10) || 0) > 0 &&
+        (parseInt(item.availableQty, 10) || 0) > 0 &&
         (!search || item.name.toLowerCase().includes(search) || item.itemId.toLowerCase().includes(search))
     );
-    
+
     container.innerHTML = availableItems.map(item => {
         const isSelected = selectedDCItems.find(s => s.itemId === item.itemId);
         return `
             <div class="item-row ${isSelected ? 'selected' : ''}" onclick="toggleItemSelection('${item.itemId}')" id="avail-${item.itemId}">
                 <div class="item-row-info">
                     <div class="item-row-name">${item.name}</div>
-                    <div class="item-row-meta">${item.itemId} • ${item.category} • Qty: ${item.quantity}</div>
+                    <div class="item-row-meta">${item.itemId} • ${item.category} • Avail: ${item.availableQty} / ${item.quantity}</div>
                 </div>
                 <div class="item-row-qty">
-                    <input type="number" min="1" max="${item.quantity}" value="${isSelected?.qty || 1}" 
-                           onclick="event.stopPropagation()" 
+                    <input type="number" min="1" max="${item.availableQty}" value="${isSelected?.qty || 1}"
+                           onclick="event.stopPropagation()"
                            onchange="updateItemQty('${item.itemId}', this.value)"
                            id="qty-${item.itemId}">
                 </div>
@@ -1434,10 +1619,10 @@ function filterAvailableItems() {
 function toggleItemSelection(itemId) {
     const item = inventoryData.find(i => i.itemId === itemId);
     if (!item) return;
-    
+
     const existingIndex = selectedDCItems.findIndex(s => s.itemId === itemId);
     const qtyInput = document.getElementById(`qty-${itemId}`);
-    const maxQty = parseInt(item.quantity, 10) || 0;
+    const maxQty = parseInt(item.availableQty, 10) || 0;
     const qty = Math.min(Math.max(1, parseInt(qtyInput?.value, 10) || 1), maxQty);
 
     if (maxQty < 1) {
@@ -2444,9 +2629,9 @@ async function confirmCheckout() {
     // Update DC status to Dispatched
     await updateDCStatus(currentCheckoutDC, 'Dispatched');
     
-    // Update inventory items status to "In Use"
-    const itemIds = checkoutItems.map(item => item.itemId);
-    await supabaseAction('updateItemsStatus', { itemIds: itemIds, status: 'In Use' });
+    // Mark only the dispatched quantity of each item as in use, not the whole item
+    const items = checkoutItems.map(item => ({ itemId: item.itemId, qty: item.qty }));
+    await supabaseAction('updateItemsStatus', { items, direction: 'checkout' });
     
     closeCheckoutModal();
     showToast('✅ Items checked out! DC dispatched.', 'success');
@@ -2546,10 +2731,10 @@ async function confirmCheckin() {
     // Update DC status to Closed
     await closeDC(currentCheckinDC);
     
-    // Update checked items status back to "Available"
-    const checkedItemIds = checkinItems.filter(i => i.checked).map(item => item.itemId);
-    if (checkedItemIds.length > 0) {
-        await supabaseAction('updateItemsStatus', { itemIds: checkedItemIds, status: 'Available' });
+    // Release only the returned quantity of each item back to available
+    const returnedItems = checkinItems.filter(i => i.checked).map(item => ({ itemId: item.itemId, qty: item.qty }));
+    if (returnedItems.length > 0) {
+        await supabaseAction('updateItemsStatus', { items: returnedItems, direction: 'checkin' });
     }
     
     closeCheckinModal();
@@ -2697,13 +2882,30 @@ function renderPRList() {
     if (currentPRFilter !== 'all') {
         filtered = prData.filter(pr => pr.status === currentPRFilter);
     }
-    
+    filtered = filtered.filter(pr => matchesDateFilter('pr', pr.createdDate));
+    updateDateFilterCount('pr', filtered.length, prData.length);
+
     if (filtered.length === 0) {
+        // Distinguish "none exist" from "none match the filters" — otherwise a
+        // date range with no hits reads as an empty database.
+        const dateActive = dateFilters.pr.from || dateFilters.pr.to;
+        const statusActive = currentPRFilter !== 'all';
+        const filtersActive = dateActive || statusActive;
+
+        const reason = [
+            statusActive ? `status "${currentPRFilter}"` : '',
+            dateActive ? `dates ${dateFilters.pr.from || 'any'} to ${dateFilters.pr.to || 'any'}` : ''
+        ].filter(Boolean).join(' and ');
+
         container.innerHTML = `
             <div class="pr-empty">
                 <div class="pr-empty-icon">🛒</div>
-                <p>No purchase requests ${currentPRFilter !== 'all' ? 'with status "' + currentPRFilter + '"' : 'yet'}</p>
-                <button class="btn-primary" style="margin-top: 16px;" onclick="switchView('createPR')">Create First Request</button>
+                <p>${filtersActive
+                    ? `No purchase requests match ${reason}`
+                    : 'No purchase requests yet'}</p>
+                ${filtersActive
+                    ? `<button class="btn-primary" style="margin-top: 16px;" onclick="clearDateFilter('pr')">Clear date filter</button>`
+                    : `<button class="btn-primary" style="margin-top: 16px;" onclick="switchView('createPR')">Create First Request</button>`}
             </div>
         `;
         return;
@@ -2729,6 +2931,34 @@ function renderPRList() {
             <button class="pr-card-delete" onclick="deletePR(event, '${pr.prNumber}')" title="Delete purchase request">Delete</button>
         </div>
     `).join('');
+}
+
+// Exports the same PRs currently visible on screen (respects the active status/date filters).
+function getFilteredPRData() {
+    let filtered = prData;
+    if (currentPRFilter !== 'all') {
+        filtered = filtered.filter(pr => pr.status === currentPRFilter);
+    }
+    return filtered.filter(pr => matchesDateFilter('pr', pr.createdDate));
+}
+
+function exportPRCSV() {
+    const headers = ['PR Number', 'Item Name', 'Quantity', 'Project', 'Department', 'Requested By', 'Priority', 'Needed By', 'Vendor', 'Status', 'Created Date', 'Quote Amount', 'Final Amount'];
+    const rows = getFilteredPRData().map(pr => [
+        pr.prNumber, pr.itemName, pr.quantity, pr.project, pr.department,
+        pr.requestedBy, pr.priority, pr.neededBy, pr.vendor, pr.status,
+        pr.createdDate, pr.quoteAmount, pr.finalAmount
+    ]);
+    downloadCSV(`cft-purchase-requests-${todayStamp()}.csv`, headers, rows);
+}
+
+function exportPRPDF() {
+    const headers = ['PR Number', 'Item Name', 'Qty', 'Department', 'Requested By', 'Priority', 'Needed By', 'Vendor', 'Status', 'Created Date'];
+    const rows = getFilteredPRData().map(pr => [
+        pr.prNumber, pr.itemName, pr.quantity, pr.department,
+        pr.requestedBy, pr.priority, pr.neededBy, pr.vendor, pr.status, pr.createdDate
+    ]);
+    downloadTableAsPDF('Purchase Requests', `cft-purchase-requests-${todayStamp()}.pdf`, headers, rows);
 }
 
 // Setup PR Filters
@@ -3594,13 +3824,11 @@ function populateCheckoutItems() {
     const select = document.getElementById('checkoutItemSelect');
     if (!select) return;
 
-    const availableItems = inventoryData.filter(item =>
-        item.status === 'Available' && item.quantity > 0
-    );
+    const availableItems = inventoryData.filter(item => item.availableQty > 0);
 
     select.innerHTML = '<option value="">-- Select an item --</option>' +
         availableItems.map(item =>
-            `<option value="${item.itemId}" data-name="${item.name}" data-qty="${item.quantity}">${item.name} (${item.itemId}) - Qty: ${item.quantity}</option>`
+            `<option value="${item.itemId}" data-name="${item.name}" data-qty="${item.availableQty}">${item.name} (${item.itemId}) - Avail: ${item.availableQty}</option>`
         ).join('');
 }
 
@@ -3996,7 +4224,9 @@ function filterBuilds(status) {
     } else {
         filteredBuilds = buildsData.filter(b => b.status === status);
     }
-    
+    filteredBuilds = filteredBuilds.filter(b => matchesDateFilter('build', b.createdDate));
+
+    updateDateFilterCount('build', filteredBuilds.length, buildsData.length);
     updateBuildsList();
 }
 
@@ -4006,28 +4236,27 @@ function populateBuildItems() {
     if (!container) return;
     
     // Filter only Electronics category with available qty > 0
-    const availableItems = inventoryData.filter(item => 
-        item.category === 'Electronics' && 
-        item.status === 'Available' && 
-        item.quantity > 0
+    const availableItems = inventoryData.filter(item =>
+        item.category === 'Electronics' &&
+        item.availableQty > 0
     );
-    
+
     if (availableItems.length === 0) {
         container.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted);">No electronics components available</div>';
         return;
     }
-    
+
     container.innerHTML = availableItems.map(item => {
         const isSelected = selectedBuildItems.find(s => s.itemId === item.itemId);
         return `
             <div class="build-item-row ${isSelected ? 'selected' : ''}" onclick="toggleBuildItem('${item.itemId}')">
                 <div class="build-item-info">
                     <div class="build-item-name">${item.name}</div>
-                    <div class="build-item-meta">${item.itemId} • Avail: ${item.quantity}</div>
+                    <div class="build-item-meta">${item.itemId} • Avail: ${item.availableQty}</div>
                 </div>
                 <div class="build-item-qty">
-                    <input type="number" min="1" max="${item.quantity}" value="1" 
-                           onclick="event.stopPropagation()" 
+                    <input type="number" min="1" max="${item.availableQty}" value="1"
+                           onclick="event.stopPropagation()"
                            onchange="updateBuildItemQty('${item.itemId}', this.value)"
                            id="build-qty-${item.itemId}">
                 </div>
@@ -4040,19 +4269,18 @@ function populateBuildItems() {
 function filterBuildItems() {
     const search = document.getElementById('buildItemSearch')?.value.toLowerCase() || '';
     const container = document.getElementById('buildAvailableItemsList');
-    
-    const availableItems = inventoryData.filter(item => 
-        item.category === 'Electronics' && 
-        item.status === 'Available' && 
-        item.quantity > 0 &&
+
+    const availableItems = inventoryData.filter(item =>
+        item.category === 'Electronics' &&
+        item.availableQty > 0 &&
         (!search || item.name.toLowerCase().includes(search) || item.itemId.toLowerCase().includes(search))
     );
-    
+
     if (availableItems.length === 0) {
         container.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted);">No matching components</div>';
         return;
     }
-    
+
     container.innerHTML = availableItems.map(item => {
         const isSelected = selectedBuildItems.find(s => s.itemId === item.itemId);
         const selectedItem = selectedBuildItems.find(s => s.itemId === item.itemId);
@@ -4060,11 +4288,11 @@ function filterBuildItems() {
             <div class="build-item-row ${isSelected ? 'selected' : ''}" onclick="toggleBuildItem('${item.itemId}')">
                 <div class="build-item-info">
                     <div class="build-item-name">${item.name}</div>
-                    <div class="build-item-meta">${item.itemId} • Avail: ${item.quantity}</div>
+                    <div class="build-item-meta">${item.itemId} • Avail: ${item.availableQty}</div>
                 </div>
                 <div class="build-item-qty">
-                    <input type="number" min="1" max="${item.quantity}" value="${selectedItem?.qty || 1}" 
-                           onclick="event.stopPropagation()" 
+                    <input type="number" min="1" max="${item.availableQty}" value="${selectedItem?.qty || 1}"
+                           onclick="event.stopPropagation()"
                            onchange="updateBuildItemQty('${item.itemId}', this.value)"
                            id="build-qty-${item.itemId}">
                 </div>
@@ -4090,7 +4318,7 @@ function toggleBuildItem(itemId) {
             name: item[1] || item.name || 'Unknown',
             category: item[2] || item.category || '',
             qty: qty,
-            maxQty: item[4] || item.quantity || 0,
+            maxQty: item.availableQty ?? item.quantity ?? 0,
             value: item[5] || item.value || 0
         });
     }
@@ -4568,7 +4796,10 @@ function renderEmployees() {
             String(emp.department || '').toLowerCase().includes(searchTerm) ||
             String(emp.role || '').toLowerCase().includes(searchTerm)
         )
+        .filter(emp => matchesDateFilter('employee', emp.joinDate))
         .sort((a, b) => String(a.name || a.empId).localeCompare(String(b.name || b.empId)));
+
+    updateDateFilterCount('employee', filtered.length, employeesData.length);
 
     if (filtered.length === 0) {
         container.innerHTML = `
@@ -4612,6 +4843,49 @@ function employeeInitials(name = '') {
     if (words.length === 0) return '-';
     if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
     return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+}
+
+// Mirrors renderEmployees()'s filter (search box + joining-date range) so the
+// export matches whichever employees are currently visible on screen.
+function getFilteredEmployees() {
+    const searchTerm = document.getElementById('employeeSearch')?.value?.toLowerCase() || '';
+    return employeesData
+        .filter(emp =>
+            String(emp.name || '').toLowerCase().includes(searchTerm) ||
+            String(emp.empId || '').toLowerCase().includes(searchTerm) ||
+            String(emp.department || '').toLowerCase().includes(searchTerm) ||
+            String(emp.role || '').toLowerCase().includes(searchTerm)
+        )
+        .filter(emp => matchesDateFilter('employee', emp.joinDate));
+}
+
+function employeeAssetsExportRows() {
+    const filteredEmpIds = new Set(getFilteredEmployees().map(emp => emp.empId));
+    return employeeAssetsData
+        .filter(a => filteredEmpIds.has(a.empId))
+        .map(a => {
+            const emp = employeesData.find(e => e.empId === a.empId);
+            return [
+                emp?.name || a.empId || '',
+                a.empId || '',
+                emp?.department || '',
+                a.itemName || '',
+                a.serialNo || '',
+                a.status || '',
+                a.assignedDate || '',
+                a.returnedDate || ''
+            ];
+        });
+}
+
+function exportEmployeeAssetsCSV() {
+    const headers = ['Employee Name', 'Employee ID', 'Department', 'Item Name', 'Serial No', 'Status', 'Assigned Date', 'Returned Date'];
+    downloadCSV(`cft-employee-assets-${todayStamp()}.csv`, headers, employeeAssetsExportRows());
+}
+
+function exportEmployeeAssetsPDF() {
+    const headers = ['Employee Name', 'Employee ID', 'Department', 'Item Name', 'Serial No', 'Status', 'Assigned Date', 'Returned Date'];
+    downloadTableAsPDF('Employee Assets', `cft-employee-assets-${todayStamp()}.pdf`, headers, employeeAssetsExportRows());
 }
 
 function employeeAssetRows(assets, type) {
@@ -5000,7 +5274,7 @@ async function returnAsset(assetId) {
 }
 
 function getAssignableItems() {
-    return inventoryData.filter(item => item.status === 'Available');
+    return inventoryData.filter(item => item.availableQty > 0);
 }
 
 function filterAssignAssetItems() {
@@ -5196,3 +5470,575 @@ async function deleteDC(dcNumber) {
 
 
 
+
+// ==================== DATE RANGE FILTER ====================
+// A single compact dropdown per page. The button shows the active range; the
+// panel holds presets plus a custom From/To.
+//
+// Every column this filters on stores ISO 'YYYY-MM-DD', so comparisons are
+// plain string compares. That is deliberate: it avoids Date parsing and the
+// timezone shift that comes with it (new Date('2026-03-14') is UTC midnight,
+// which is the previous calendar day west of GMT).
+
+const DATE_FILTER_SCOPES = {
+    dc: {
+        title: 'Event Date', toggle: 'dcDateToggle', label: 'dcDateLabel',
+        rerender: () => filterDCs()
+    },
+    pr: {
+        title: 'Request Date', toggle: 'prDateToggle', label: 'prDateLabel',
+        rerender: () => renderPRList()
+    },
+    build: {
+        title: 'Created Date', toggle: 'buildDateToggle', label: 'buildDateLabel',
+        rerender: () => filterBuilds(currentBuildFilter)
+    },
+    vendor: {
+        title: 'Created Date', toggle: 'vendorDateToggle', label: 'vendorDateLabel',
+        rerender: () => renderVendorTable()
+    },
+    employee: {
+        title: 'Joining Date', toggle: 'employeeDateToggle', label: 'employeeDateLabel',
+        rerender: () => renderEmployees()
+    }
+};
+
+const DATE_PRESETS = [
+    { key: 'all', label: 'All dates' },
+    { key: 'week', label: 'This Week' },
+    { key: 'month', label: 'This Month' },
+    { key: 'year', label: 'This Year' }
+];
+
+const dateFilters = {
+    dc: { from: '', to: '', preset: 'all' },
+    pr: { from: '', to: '', preset: 'all' },
+    build: { from: '', to: '', preset: 'all' },
+    vendor: { from: '', to: '', preset: 'all' },
+    employee: { from: '', to: '', preset: 'all' }
+};
+
+let openDateScope = null;
+
+// Local-time YYYY-MM-DD. Deliberately not toISOString(), which converts to UTC
+// and can land on the wrong calendar day.
+function toYMD(date) {
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return date.getFullYear() + '-' + month + '-' + day;
+}
+
+// Pulls a comparable YYYY-MM-DD out of a stored value, or '' if it isn't a
+// date. Tolerates timestamps ('2026-06-04T06:02:07Z') by taking the date part.
+function normalizeDate(value) {
+    if (!value) return '';
+    const text = String(value).trim();
+    return /^\d{4}-\d{2}-\d{2}/.test(text) ? text.slice(0, 10) : '';
+}
+
+function presetRange(preset) {
+    const now = new Date();
+
+    if (preset === 'week') {
+        // Week runs Monday-Sunday.
+        const offset = (now.getDay() + 6) % 7;
+        const start = new Date(now);
+        start.setDate(now.getDate() - offset);
+        const end = new Date(start);
+        end.setDate(start.getDate() + 6);
+        return { from: toYMD(start), to: toYMD(end) };
+    }
+
+    if (preset === 'month') {
+        return {
+            from: toYMD(new Date(now.getFullYear(), now.getMonth(), 1)),
+            to: toYMD(new Date(now.getFullYear(), now.getMonth() + 1, 0))
+        };
+    }
+
+    if (preset === 'year') {
+        return {
+            from: toYMD(new Date(now.getFullYear(), 0, 1)),
+            to: toYMD(new Date(now.getFullYear(), 11, 31))
+        };
+    }
+
+    return { from: '', to: '' };
+}
+
+// Blank on either side means open-ended, so "from March onwards" works.
+function matchesDateFilter(scope, value) {
+    const { from, to } = dateFilters[scope];
+    if (!from && !to) return true;
+
+    const date = normalizeDate(value);
+    if (!date) return false;
+
+    if (from && date < from) return false;
+    if (to && date > to) return false;
+    return true;
+}
+
+function dateFilterLabel(scope) {
+    const { from, to, preset } = dateFilters[scope];
+    if (!from && !to) return 'All dates';
+
+    const named = DATE_PRESETS.find(p => p.key === preset);
+    if (named && preset !== 'all' && preset !== 'custom') return named.label;
+
+    if (from && to) return from + ' → ' + to;
+    if (from) return 'From ' + from;
+    return 'Until ' + to;
+}
+
+function setDatePreset(scope, preset) {
+    dateFilters[scope] = { ...presetRange(preset), preset };
+    refreshDateFilter(scope);
+}
+
+function applyCustomDateRange(scope) {
+    const from = document.getElementById('dateFilterFrom')?.value || '';
+    const to = document.getElementById('dateFilterTo')?.value || '';
+
+    // An inverted range silently matches nothing, which reads as "no data".
+    // Swap instead, so the result is always what was meant.
+    dateFilters[scope] = (from && to && from > to)
+        ? { from: to, to: from, preset: 'custom' }
+        : { from, to, preset: 'custom' };
+
+    refreshDateFilter(scope);
+}
+
+function clearDateFilter(scope) {
+    setDatePreset(scope, 'all');
+}
+
+function refreshDateFilter(scope) {
+    const config = DATE_FILTER_SCOPES[scope];
+    const label = document.getElementById(config.label);
+    if (label) label.textContent = dateFilterLabel(scope);
+
+    const toggle = document.getElementById(config.toggle);
+    if (toggle) {
+        const { from, to } = dateFilters[scope];
+        toggle.classList.toggle('active', Boolean(from || to));
+    }
+
+    if (openDateScope === scope) renderDateFilterPanel(scope);
+    config.rerender();
+}
+
+function closeDateFilterPanel() {
+    const panel = document.getElementById('dateFilterPanel');
+    if (panel) panel.remove();
+    document.querySelectorAll('.date-filter-toggle.open').forEach(b => b.classList.remove('open'));
+    openDateScope = null;
+}
+
+function toggleDateFilterPanel(scope, button) {
+    if (openDateScope === scope) {
+        closeDateFilterPanel();
+        return;
+    }
+    closeDateFilterPanel();
+    openDateScope = scope;
+    button.classList.add('open');
+
+    const panel = document.createElement('div');
+    panel.id = 'dateFilterPanel';
+    panel.className = 'date-filter-panel';
+    document.body.appendChild(panel);
+
+    const rect = button.getBoundingClientRect();
+    panel.style.top = (rect.bottom + window.scrollY + 6) + 'px';
+    // Keep the panel on screen when the button sits near the right edge.
+    const left = Math.min(rect.left + window.scrollX, window.scrollX + window.innerWidth - 280);
+    panel.style.left = Math.max(8, left) + 'px';
+
+    renderDateFilterPanel(scope);
+}
+
+function renderDateFilterPanel(scope) {
+    const panel = document.getElementById('dateFilterPanel');
+    if (!panel) return;
+
+    const config = DATE_FILTER_SCOPES[scope];
+    const { from, to, preset } = dateFilters[scope];
+    const isActive = Boolean(from || to);
+
+    const presets = DATE_PRESETS.map(p =>
+        '<button class="date-preset-btn ' + (preset === p.key ? 'active' : '') + '"' +
+        ' onclick="setDatePreset(\'' + scope + '\',\'' + p.key + '\')">' + p.label + '</button>'
+    ).join('');
+
+    panel.innerHTML =
+        '<div class="date-filter-head">' + config.title + '</div>' +
+        '<div class="date-filter-presets">' + presets + '</div>' +
+        '<div class="date-filter-custom">' +
+        '<label>From<input type="date" id="dateFilterFrom" value="' + from + '"' +
+        ' onchange="applyCustomDateRange(\'' + scope + '\')"></label>' +
+        '<label>To<input type="date" id="dateFilterTo" value="' + to + '"' +
+        ' onchange="applyCustomDateRange(\'' + scope + '\')"></label>' +
+        '</div>' +
+        '<button class="date-filter-reset" ' + (isActive ? '' : 'disabled') +
+        ' onclick="clearDateFilter(\'' + scope + '\')">&#8634; Reset</button>';
+}
+
+// Counts shown next to the toggle, so an empty list is never a mystery.
+function updateDateFilterCount(scope, shown, total) {
+    const el = document.getElementById(DATE_FILTER_SCOPES[scope].label + 'Count');
+    if (!el) return;
+    const { from, to } = dateFilters[scope];
+    el.textContent = (from || to) ? shown + ' of ' + total : '';
+}
+
+document.addEventListener('click', event => {
+    if (!openDateScope) return;
+    if (event.target.closest('#dateFilterPanel') || event.target.closest('.date-filter-toggle')) return;
+    closeDateFilterPanel();
+});
+
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') closeDateFilterPanel();
+});
+
+// ==================== TABLE COLUMN FILTERS ====================
+// Excel-style per-column dropdowns, shared by the All Items table and the
+// dashboard drill-down (Stat Detail) table. Both render the same item shape via
+// renderInventoryTableRow, so one module drives both.
+//
+// Filters cascade: the options offered for a column come from the rows that
+// survive every OTHER active filter, so a value that would return nothing is
+// never shown. A column is excluded from its own narrowing -- otherwise ticking
+// one value would erase the rest of the list.
+//
+// Option lists are derived from the data, never hardcoded. The toolbar's
+// Category select only knows 6 of the 13 categories actually present, and its
+// Status select is missing "Assigned"; deriving avoids repeating that mistake.
+
+const INVENTORY_COLUMNS = {
+    name: { label: 'Name', field: 'name', type: 'values' },
+    category: { label: 'Category', field: 'category', type: 'values' },
+    quantity: { label: 'Qty', field: 'quantity', type: 'sort', numeric: true },
+    status: { label: 'Status', field: 'status', type: 'values' },
+    location: { label: 'Location', field: 'location', type: 'values' },
+    value: { label: 'Value', field: 'value', type: 'sort', numeric: true }
+};
+
+const FILTERABLE_KEYS = ['name', 'category', 'status', 'location'];
+
+// Sentinel for empty cells so they can be ticked like any other value. Plain
+// ASCII on purpose: a control character here ends up embedded in app.js and
+// makes the whole file read as binary to grep and other tooling.
+const BLANK_VALUE = '__BLANK__';
+
+function newFilterSet() {
+    return FILTERABLE_KEYS.reduce((acc, key) => {
+        acc[key] = new Set();
+        return acc;
+    }, {});
+}
+
+const columnFilterState = { inventory: newFilterSet(), statDetail: newFilterSet() };
+const columnSortState = {
+    inventory: { key: null, dir: 'asc' },
+    statDetail: { key: null, dir: 'asc' }
+};
+
+let openFilterColumn = null;
+let openFilterScope = null;
+let columnFilterQuery = '';
+
+// Rows before column filters: the search box and any toolbar selects.
+function inventoryBaseRows() {
+    const search = (document.getElementById('globalSearch')?.value || '').toLowerCase();
+    const category = document.getElementById('categoryFilter')?.value || '';
+    const status = document.getElementById('statusFilter')?.value || '';
+
+    return inventoryData.filter(item => {
+        const matchSearch = !search ||
+            item.name.toLowerCase().includes(search) ||
+            item.itemId.toLowerCase().includes(search) ||
+            item.category.toLowerCase().includes(search);
+        const matchCategory = !category || item.category === category;
+        const matchStatus = !status || item.status === status;
+        return matchSearch && matchCategory && matchStatus;
+    });
+}
+
+function statDetailBaseRows() {
+    const search = (document.getElementById('statDetailSearch')?.value || '').toLowerCase();
+    if (!search) return statDetailBaseData;
+    return statDetailBaseData.filter(item =>
+        item.name.toLowerCase().includes(search) ||
+        item.itemId.toLowerCase().includes(search) ||
+        item.category.toLowerCase().includes(search));
+}
+
+const TABLE_SCOPES = {
+    inventory: {
+        baseRows: inventoryBaseRows,
+        apply: () => filterItems(),
+        banner: 'columnFilterBanner',
+        bannerText: 'columnFilterBannerText',
+        shown: () => filteredData.length,
+        total: () => inventoryData.length
+    },
+    statDetail: {
+        baseRows: statDetailBaseRows,
+        apply: () => filterStatDetail(),
+        banner: 'statDetailFilterBanner',
+        bannerText: 'statDetailFilterBannerText',
+        shown: () => statDetailFiltered.length,
+        total: () => statDetailBaseData.length
+    }
+};
+
+function columnValueOf(item, key) {
+    const raw = item[INVENTORY_COLUMNS[key].field];
+    const text = String(raw === null || raw === undefined ? '' : raw).trim();
+    return text === '' ? BLANK_VALUE : text;
+}
+
+function matchesColumnFilters(scope, item, excludeKey) {
+    const filters = columnFilterState[scope];
+    for (const key of FILTERABLE_KEYS) {
+        if (key === excludeKey) continue;
+        const selected = filters[key];
+        if (selected.size && !selected.has(columnValueOf(item, key))) return false;
+    }
+    return true;
+}
+
+// Distinct values for a column, counted against every filter except its own.
+function columnFilterOptions(scope, key) {
+    const counts = new Map();
+    for (const item of TABLE_SCOPES[scope].baseRows()) {
+        if (!matchesColumnFilters(scope, item, key)) continue;
+        const value = columnValueOf(item, key);
+        counts.set(value, (counts.get(value) || 0) + 1);
+    }
+
+    return [...counts.entries()]
+        .sort((a, b) => {
+            if (a[0] === BLANK_VALUE) return 1;
+            if (b[0] === BLANK_VALUE) return -1;
+            return a[0].localeCompare(b[0], undefined, { numeric: true });
+        })
+        .map(([value, count]) => ({ value, count }));
+}
+
+// The full pipeline for a scope: base rows -> column filters -> sort.
+function applyColumnPipeline(scope) {
+    const rows = TABLE_SCOPES[scope].baseRows().filter(item => matchesColumnFilters(scope, item, null));
+    return sortColumnRows(scope, rows);
+}
+
+function sortColumnRows(scope, rows) {
+    const { key, dir } = columnSortState[scope];
+    if (!key) return rows;
+
+    const { numeric, field } = INVENTORY_COLUMNS[key];
+
+    return [...rows].sort((a, b) => {
+        const result = numeric
+            ? (Number(a[field]) || 0) - (Number(b[field]) || 0)
+            : String(a[field] ?? '').localeCompare(String(b[field] ?? ''), undefined, { numeric: true });
+        return dir === 'desc' ? -result : result;
+    });
+}
+
+function sortColumn(scope, key, dir) {
+    columnSortState[scope] = { key, dir };
+    closeColumnFilter();
+    TABLE_SCOPES[scope].apply();
+}
+
+// Nothing ticked means no filter on this column, so the panel opens with every
+// box empty and the table showing everything. You tick what you want to keep.
+function toggleColumnValue(scope, key, value) {
+    const selected = columnFilterState[scope][key];
+
+    if (selected.has(value)) {
+        selected.delete(value);
+    } else {
+        selected.add(value);
+    }
+
+    TABLE_SCOPES[scope].apply();
+    renderColumnFilterPanel(scope, key);
+}
+
+function selectAllColumnValues(scope, key) {
+    const selected = columnFilterState[scope][key];
+    selected.clear();
+    // Tick only what is currently offered, so "Select all" respects the search
+    // box and the other columns' filters rather than silently adding hidden values.
+    columnFilterOptions(scope, key).forEach(o => selected.add(o.value));
+    TABLE_SCOPES[scope].apply();
+    renderColumnFilterPanel(scope, key);
+}
+
+function clearColumnFilter(scope, key) {
+    // Empty set = no filter on this column = every row passes.
+    columnFilterState[scope][key].clear();
+    TABLE_SCOPES[scope].apply();
+    renderColumnFilterPanel(scope, key);
+}
+
+function clearAllColumnFilters(scope) {
+    FILTERABLE_KEYS.forEach(key => columnFilterState[scope][key].clear());
+    columnSortState[scope] = { key: null, dir: 'asc' };
+    closeColumnFilter();
+    TABLE_SCOPES[scope].apply();
+}
+
+function closeColumnFilter() {
+    const panel = document.getElementById('columnFilterPanel');
+    if (panel) panel.remove();
+    openFilterColumn = null;
+    openFilterScope = null;
+    columnFilterQuery = '';
+    document.querySelectorAll('.col-filter-btn.open').forEach(b => b.classList.remove('open'));
+}
+
+function openColumnFilter(scope, key, button) {
+    if (openFilterColumn === key && openFilterScope === scope) {
+        closeColumnFilter();
+        return;
+    }
+    closeColumnFilter();
+    openFilterColumn = key;
+    openFilterScope = scope;
+    button.classList.add('open');
+
+    const panel = document.createElement('div');
+    panel.id = 'columnFilterPanel';
+    panel.className = 'col-filter-panel';
+    document.body.appendChild(panel);
+
+    const rect = button.getBoundingClientRect();
+    panel.style.top = (rect.bottom + window.scrollY + 6) + 'px';
+    // Keep the panel on screen when the column sits near the right edge.
+    const left = Math.min(rect.left + window.scrollX, window.scrollX + window.innerWidth - 300);
+    panel.style.left = Math.max(8, left) + 'px';
+
+    renderColumnFilterPanel(scope, key);
+}
+
+function setColumnFilterQuery(scope, key, value) {
+    columnFilterQuery = value;
+    renderColumnFilterPanel(scope, key, true);
+}
+
+function renderColumnFilterPanel(scope, key, keepFocus) {
+    const panel = document.getElementById('columnFilterPanel');
+    if (!panel) return;
+
+    const column = INVENTORY_COLUMNS[key];
+    const sort = columnSortState[scope];
+    const isSorted = sort.key === key;
+    const ascLabel = column.numeric ? 'Low to high' : 'A to Z';
+    const descLabel = column.numeric ? 'High to low' : 'Z to A';
+
+    const sortSection =
+        '<div class="col-filter-sort">' +
+        '<button class="col-filter-sort-btn ' + (isSorted && sort.dir === 'asc' ? 'active' : '') + '"' +
+        ' onclick="sortColumn(\'' + scope + '\',\'' + key + '\',\'asc\')">&#8593; ' + ascLabel + '</button>' +
+        '<button class="col-filter-sort-btn ' + (isSorted && sort.dir === 'desc' ? 'active' : '') + '"' +
+        ' onclick="sortColumn(\'' + scope + '\',\'' + key + '\',\'desc\')">&#8595; ' + descLabel + '</button>' +
+        '</div>';
+
+    if (column.type === 'sort') {
+        panel.innerHTML = '<div class="col-filter-head">' + column.label + '</div>' + sortSection;
+        return;
+    }
+
+    const options = columnFilterOptions(scope, key);
+    const selected = columnFilterState[scope][key];
+    const query = columnFilterQuery.toLowerCase();
+    const visible = query
+        ? options.filter(o => o.value !== BLANK_VALUE && o.value.toLowerCase().includes(query))
+        : options;
+
+    const rows = visible.length === 0
+        ? '<div class="col-filter-empty">No matches</div>'
+        : visible.map(o => {
+            const checked = selected.has(o.value);
+            const label = o.value === BLANK_VALUE ? '<em>(blank)</em>' : escapeHtml(o.value);
+            return '<label class="col-filter-option">' +
+                '<input type="checkbox" ' + (checked ? 'checked' : '') + ' data-value="' + escapeHtml(o.value) + '">' +
+                '<span class="col-filter-option-text">' + label + '</span>' +
+                '<span class="col-filter-option-count">' + o.count + '</span>' +
+                '</label>';
+        }).join('');
+
+    const picked = options.filter(o => selected.has(o.value)).length;
+    const footer = picked === 0
+        ? 'Nothing ticked &mdash; showing all ' + options.length
+        : picked + ' of ' + options.length + ' ticked';
+
+    panel.innerHTML =
+        '<div class="col-filter-head">' + column.label + '</div>' +
+        sortSection +
+        '<input type="text" class="col-filter-search" placeholder="Search..." value="' + escapeHtml(columnFilterQuery) + '"' +
+        ' oninput="setColumnFilterQuery(\'' + scope + '\',\'' + key + '\', this.value)">' +
+        '<div class="col-filter-actions">' +
+        '<button onclick="selectAllColumnValues(\'' + scope + '\',\'' + key + '\')">Select all</button>' +
+        '<button class="col-filter-reset" ' + (picked === 0 ? 'disabled' : '') +
+        ' onclick="clearColumnFilter(\'' + scope + '\',\'' + key + '\')">&#8634; Reset</button>' +
+        '</div>' +
+        '<div class="col-filter-list">' + rows + '</div>' +
+        '<div class="col-filter-foot">' + footer + '</div>';
+
+    // Delegated: a value containing a quote would break an inline handler.
+    const list = panel.querySelector('.col-filter-list');
+    if (list) {
+        list.addEventListener('change', event => {
+            const box = event.target.closest('input[type="checkbox"]');
+            if (box) toggleColumnValue(scope, key, box.dataset.value);
+        });
+    }
+
+    if (keepFocus) {
+        const search = panel.querySelector('.col-filter-search');
+        if (search) {
+            search.focus();
+            search.setSelectionRange(search.value.length, search.value.length);
+        }
+    }
+}
+
+function updateColumnFilterIndicators(scope) {
+    const filters = columnFilterState[scope];
+    const sort = columnSortState[scope];
+
+    Object.keys(INVENTORY_COLUMNS).forEach(key => {
+        const btn = document.querySelector('.col-filter-btn[data-scope="' + scope + '"][data-col="' + key + '"]');
+        if (!btn) return;
+        const filtered = filters[key] && filters[key].size > 0;
+        const sorted = sort.key === key;
+        btn.classList.toggle('filtered', !!filtered);
+        btn.classList.toggle('sorted', !!sorted);
+        btn.innerHTML = filtered ? '&#9660;' : (sorted ? (sort.dir === 'asc' ? '&#8593;' : '&#8595;') : '&#9662;');
+    });
+
+    const active = FILTERABLE_KEYS.some(k => filters[k].size > 0) || sort.key;
+    const config = TABLE_SCOPES[scope];
+    const banner = document.getElementById(config.banner);
+    if (banner) {
+        banner.style.display = active ? 'flex' : 'none';
+        const text = document.getElementById(config.bannerText);
+        if (text) text.textContent = config.shown() + ' of ' + config.total() + ' items';
+    }
+}
+
+document.addEventListener('click', event => {
+    if (!openFilterColumn) return;
+    if (event.target.closest('#columnFilterPanel') || event.target.closest('.col-filter-btn')) return;
+    closeColumnFilter();
+});
+
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') closeColumnFilter();
+});

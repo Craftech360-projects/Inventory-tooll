@@ -108,7 +108,16 @@ function handleStatic(req, res, pathname) {
     }
 
     const ext = path.extname(filePath).toLowerCase();
-    send(res, 200, data, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
+    const headers = { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' };
+
+    // Never cache the source files in local dev. Without this the browser keeps
+    // serving a stale styles.css/app.js after an edit and every change looks
+    // like it did nothing until you remember to hard-reload.
+    if (['.html', '.css', '.js'].includes(ext)) {
+      headers['Cache-Control'] = 'no-store, must-revalidate';
+    }
+
+    send(res, 200, data, headers);
   });
 }
 

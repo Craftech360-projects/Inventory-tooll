@@ -16,7 +16,8 @@ const HEADERS = [
   'Vendor Name',
   'Vendor Contact',
   'Rental Cost',
-  'Deposit'
+  'Deposit',
+  'In Use Qty'
 ];
 
 exports.handler = async () => {

@@ -6,7 +6,8 @@ const HEADERS = [
   'Email',
   'Vendor Address',
   'GSTIN',
-  'PAN',
+  'City',
+  'Category',
   'Created Date'
 ];
 
