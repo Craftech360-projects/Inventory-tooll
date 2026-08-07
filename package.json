@@ -19,8 +19,10 @@
     "url": "https://github.com/Craftech360-projects/Inventory-tooll/issues"
   },
   "homepage": "https://github.com/Craftech360-projects/Inventory-tooll#readme",
-  "dependencies": {
-    "googleapis": "^171.4.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
     "netlify-cli": "^25.0.0"
   }
 }

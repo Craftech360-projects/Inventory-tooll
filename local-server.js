@@ -51,11 +51,16 @@ function send(res, statusCode, body, headers = {}) {
   res.end(body);
 }
 
+// Both prefixes hit the same handlers: /.netlify/functions/* is what the frontend
+// calls, /api/* is the path Vercel serves (vercel.json rewrites one to the other).
+const FUNCTION_PREFIXES = ['/.netlify/functions/', '/api/'];
+
 async function handleFunction(req, res, pathname) {
-  const functionName = pathname.replace('/.netlify/functions/', '');
+  const prefix = FUNCTION_PREFIXES.find(p => pathname.startsWith(p));
+  const functionName = pathname.slice(prefix.length);
   const functionPath = path.join(root, 'netlify', 'functions', `${functionName}.js`);
 
-  if (!fs.existsSync(functionPath)) {
+  if (!/^[a-zA-Z0-9_-]+$/.test(functionName) || !fs.existsSync(functionPath)) {
     send(res, 404, JSON.stringify({ error: 'Function not found' }), {
       'Content-Type': 'application/json'
     });
@@ -114,7 +119,7 @@ const server = http.createServer((req, res) => {
   }
 
   const url = new URL(req.url, `http://${req.headers.host}`);
-  if (url.pathname.startsWith('/.netlify/functions/')) {
+  if (FUNCTION_PREFIXES.some(p => url.pathname.startsWith(p))) {
     handleFunction(req, res, url.pathname);
     return;
   }
