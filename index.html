@@ -810,6 +810,11 @@
                             <input type="text" id="employeeSearch" placeholder="Search employees..." onkeyup="filterEmployees()">
                         </div>
                         <div class="employee-assets-actions">
+                            <select id="employeeAssetFilter" class="employee-asset-filter" onchange="filterEmployees()" title="Filter by asset assignment">
+                                <option value="all">All employees</option>
+                                <option value="with">With assets</option>
+                                <option value="without">Without assets</option>
+                            </select>
                             <div class="date-filter-wrap">
                                 <button class="date-filter-toggle" id="employeeDateToggle" onclick="toggleDateFilterPanel('employee', this)"><span class="date-filter-icon">&#x1F4C5;</span><span id="employeeDateLabel">All dates</span><span class="date-filter-caret">&#9662;</span></button>
                                 <span class="date-filter-count" id="employeeDateLabelCount"></span>

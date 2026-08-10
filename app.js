@@ -430,7 +430,14 @@ function mapRowsToInventoryItems(rows) {
         if (!itemId) continue;
 
         const quantity = parseInt(row[4], 10) || 0;
-        const inUseQty = Math.max(0, Math.min(quantity, parseInt(row[16], 10) || 0));
+        const status = row[5] || 'Available';
+        let inUseQty = Math.max(0, Math.min(quantity, parseInt(row[16], 10) || 0));
+        // "In Use Qty" is a newer column. Rows written before it existed - or
+        // before the backfill ran - leave it blank, so fall back to the old
+        // single-status model: a row marked "In Use" is wholly checked out.
+        // Without this every item reads as fully available, which makes the
+        // Available/In Use drill-downs show the entire inventory.
+        if (inUseQty === 0 && status === 'In Use') inUseQty = quantity;
 
         items.push({
             rowIndex: i + 1,
@@ -439,7 +446,7 @@ function mapRowsToInventoryItems(rows) {
             category: normalizeInventoryCategory(row[2] || ''),
             subCategory: row[3] || '',
             quantity,
-            status: row[5] || 'Available',
+            status,
             location: row[6] || '',
             value: parseInt(row[7], 10) || 0,
             addedDate: row[8] || '',
@@ -4785,6 +4792,24 @@ function renderEmployees() {
     }).join('');
 }
 
+// Assets currently held by an employee. empIds are compared as strings because
+// the sheet returns them as numbers in some rows and text in others.
+function employeeActiveAssets(empId) {
+    return employeeAssetsData.filter(a => String(a.empId) === String(empId) && a.status === 'Active');
+}
+
+// 'all' | 'with' | 'without' — matches the #employeeAssetFilter dropdown.
+function employeeAssetFilterValue() {
+    return document.getElementById('employeeAssetFilter')?.value || 'all';
+}
+
+function matchesEmployeeAssetFilter(emp) {
+    const mode = employeeAssetFilterValue();
+    if (mode === 'all') return true;
+    const hasAssets = employeeActiveAssets(emp.empId).length > 0;
+    return mode === 'with' ? hasAssets : !hasAssets;
+}
+
 function renderEmployees() {
     const container = document.getElementById('employeesList');
     const searchTerm = document.getElementById('employeeSearch')?.value?.toLowerCase() || '';
@@ -4797,6 +4822,7 @@ function renderEmployees() {
             String(emp.role || '').toLowerCase().includes(searchTerm)
         )
         .filter(emp => matchesDateFilter('employee', emp.joinDate))
+        .filter(matchesEmployeeAssetFilter)
         .sort((a, b) => String(a.name || a.empId).localeCompare(String(b.name || b.empId)));
 
     updateDateFilterCount('employee', filtered.length, employeesData.length);
@@ -4812,8 +4838,7 @@ function renderEmployees() {
     }
 
     container.innerHTML = filtered.map(emp => {
-        const assets = employeeAssetsData.filter(a => a.empId === emp.empId && a.status === 'Active');
-        const assetCount = assets.length;
+        const assetCount = employeeActiveAssets(emp.empId).length;
 
         return `
             <button type="button" class="employee-card" onclick="viewEmployeeDetail('${escapeHtml(emp.empId)}')">
@@ -4845,8 +4870,8 @@ function employeeInitials(name = '') {
     return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 }
 
-// Mirrors renderEmployees()'s filter (search box + joining-date range) so the
-// export matches whichever employees are currently visible on screen.
+// Mirrors renderEmployees()'s filter (search box + joining-date range + asset
+// filter) so the export matches whichever employees are currently on screen.
 function getFilteredEmployees() {
     const searchTerm = document.getElementById('employeeSearch')?.value?.toLowerCase() || '';
     return employeesData
@@ -4856,36 +4881,72 @@ function getFilteredEmployees() {
             String(emp.department || '').toLowerCase().includes(searchTerm) ||
             String(emp.role || '').toLowerCase().includes(searchTerm)
         )
-        .filter(emp => matchesDateFilter('employee', emp.joinDate));
+        .filter(emp => matchesDateFilter('employee', emp.joinDate))
+        .filter(matchesEmployeeAssetFilter);
 }
 
+// One row per assignment. Employees with no assignment still get a row (with
+// the asset columns blank) so the "Without assets" export isn't empty.
 function employeeAssetsExportRows() {
-    const filteredEmpIds = new Set(getFilteredEmployees().map(emp => emp.empId));
-    return employeeAssetsData
-        .filter(a => filteredEmpIds.has(a.empId))
-        .map(a => {
-            const emp = employeesData.find(e => e.empId === a.empId);
-            return [
-                emp?.name || a.empId || '',
+    const rows = [];
+
+    getFilteredEmployees()
+        .sort((a, b) => String(a.name || a.empId).localeCompare(String(b.name || b.empId)))
+        .forEach(emp => {
+            const assets = employeeAssetsData.filter(a => String(a.empId) === String(emp.empId));
+
+            if (assets.length === 0) {
+                rows.push([emp.name || emp.empId || '', emp.empId || '', emp.department || '', '', '', 'No assets', '', '']);
+                return;
+            }
+
+            assets.forEach(a => rows.push([
+                emp.name || a.empId || '',
                 a.empId || '',
-                emp?.department || '',
+                emp.department || '',
                 a.itemName || '',
                 a.serialNo || '',
                 a.status || '',
                 a.assignedDate || '',
                 a.returnedDate || ''
-            ];
+            ]));
         });
+
+    return rows;
+}
+
+const EMPLOYEE_ASSET_EXPORT_HEADERS = ['Employee Name', 'Employee ID', 'Department', 'Item Name', 'Serial No', 'Status', 'Assigned Date', 'Returned Date'];
+
+// Folded into the file name / PDF title so an exported file says which slice it is.
+function employeeAssetFilterSuffix() {
+    const mode = employeeAssetFilterValue();
+    if (mode === 'with') return '-with-assets';
+    if (mode === 'without') return '-without-assets';
+    return '';
+}
+
+function employeeAssetFilterTitle() {
+    const mode = employeeAssetFilterValue();
+    if (mode === 'with') return 'Employee Assets (With Assets)';
+    if (mode === 'without') return 'Employee Assets (Without Assets)';
+    return 'Employee Assets';
 }
 
 function exportEmployeeAssetsCSV() {
-    const headers = ['Employee Name', 'Employee ID', 'Department', 'Item Name', 'Serial No', 'Status', 'Assigned Date', 'Returned Date'];
-    downloadCSV(`cft-employee-assets-${todayStamp()}.csv`, headers, employeeAssetsExportRows());
+    downloadCSV(
+        `cft-employee-assets${employeeAssetFilterSuffix()}-${todayStamp()}.csv`,
+        EMPLOYEE_ASSET_EXPORT_HEADERS,
+        employeeAssetsExportRows()
+    );
 }
 
 function exportEmployeeAssetsPDF() {
-    const headers = ['Employee Name', 'Employee ID', 'Department', 'Item Name', 'Serial No', 'Status', 'Assigned Date', 'Returned Date'];
-    downloadTableAsPDF('Employee Assets', `cft-employee-assets-${todayStamp()}.pdf`, headers, employeeAssetsExportRows());
+    downloadTableAsPDF(
+        employeeAssetFilterTitle(),
+        `cft-employee-assets${employeeAssetFilterSuffix()}-${todayStamp()}.pdf`,
+        EMPLOYEE_ASSET_EXPORT_HEADERS,
+        employeeAssetsExportRows()
+    );
 }
 
 function employeeAssetRows(assets, type) {
