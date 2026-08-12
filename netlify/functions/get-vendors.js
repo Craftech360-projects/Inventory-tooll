@@ -8,6 +8,7 @@ const HEADERS = [
   'GSTIN',
   'City',
   'Category',
+  'POC Name',
   'Created Date'
 ];
 

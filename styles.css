@@ -612,6 +612,10 @@ body {
     grid-column: span 2;
 }
 
+.form-group.span-2 {
+    grid-column: span 2;
+}
+
 .form-group label {
     font-size: 13px;
     font-weight: 500;
@@ -883,6 +887,10 @@ body {
 
 .toast.error {
     border-color: var(--danger);
+}
+
+.toast.warning {
+    border-color: var(--warning);
 }
 
 /* Employee Assets */
@@ -1260,7 +1268,8 @@ body {
         grid-template-columns: 1fr;
     }
     
-    .form-group.full-width {
+    .form-group.full-width,
+    .form-group.span-2 {
         grid-column: auto;
     }
 
@@ -1343,8 +1352,23 @@ body {
     gap: 16px;
 }
 
+/* The address textarea is taller than an input, so it gets a row to itself —
+   otherwise the fields beside it stop short and the row reads as ragged. */
 .vendor-form-card .form-group.full-width {
-    grid-column: span 2;
+    grid-column: 1 / -1;
+}
+
+/* Labels wrap to two lines at some widths ("Vendor Contact Number"). Bottom-
+   aligning each group keeps every control in a row on the same baseline. */
+.vendor-form-card .form-group {
+    justify-content: flex-end;
+}
+
+/* A select is ~2px taller than an input at the same padding, which shows up
+   as a stepped top edge next to it. Pin both to one line box. */
+.vendor-form-card .form-group input,
+.vendor-form-card .form-group select {
+    line-height: 1.35;
 }
 
 .vendor-form-card textarea {
@@ -1446,7 +1470,8 @@ body {
         grid-template-columns: 1fr;
     }
 
-    .vendor-form-card .form-group.full-width {
+    .vendor-form-card .form-group.full-width,
+    .vendor-form-card .form-group.span-2 {
         grid-column: auto;
     }
 }
@@ -4157,4 +4182,409 @@ body {
 .col-filter-banner button:hover {
     background: var(--primary-dark);
     border-color: var(--primary-dark);
+}
+
+/* ==================== MISSING ITEMS / PARTIAL RETURNS ==================== */
+
+.dc-status-partiallyreturned {
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+}
+
+.dc-card-missing {
+    border-color: rgba(239, 68, 68, 0.5);
+}
+
+.dc-card-missing:hover {
+    border-color: var(--danger);
+}
+
+.dc-missing-banner {
+    margin: 14px 0;
+    padding: 12px 14px;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    border-left: 3px solid var(--danger);
+    border-radius: var(--radius-sm);
+}
+
+.dc-missing-banner-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.dc-missing-banner-icon {
+    font-size: 16px;
+    line-height: 1.3;
+}
+
+.dc-missing-banner-text {
+    font-size: 13px;
+    color: #fca5a5;
+    line-height: 1.5;
+}
+
+.dc-missing-banner-text strong {
+    color: #fecaca;
+}
+
+.dc-missing-banner-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+    padding-left: 26px;
+}
+
+.dc-missing-chip {
+    font-size: 11px;
+    padding: 3px 9px;
+    border-radius: 20px;
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #fca5a5;
+}
+
+.status-tab.active.blocked {
+    background: var(--danger);
+}
+
+.dc-item-row-missing td {
+    background: rgba(239, 68, 68, 0.07);
+}
+
+.dc-missing-qty {
+    color: #f87171;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+/* Check-in quantity rows */
+.checkin-item {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 16px;
+    background: var(--bg-card);
+    border: 2px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-bottom: 8px;
+}
+
+.checkin-item.short {
+    border-color: rgba(239, 68, 68, 0.5);
+    background: rgba(239, 68, 68, 0.07);
+}
+
+.checkin-item.complete {
+    border-color: rgba(34, 197, 94, 0.4);
+    background: rgba(34, 197, 94, 0.07);
+}
+
+.checkin-item-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.checkin-item-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.checkin-step {
+    width: 30px;
+    height: 30px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.checkin-step:hover:not(:disabled) {
+    border-color: var(--primary);
+    background: var(--primary);
+}
+
+.checkin-step:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.checkin-qty-input {
+    width: 58px;
+    padding: 6px 8px;
+    text-align: center;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.checkin-qty-of {
+    font-size: 12px;
+    color: var(--text-muted);
+    min-width: 28px;
+}
+
+.checkin-item-flag {
+    font-size: 12px;
+    font-weight: 500;
+    min-width: 96px;
+    text-align: right;
+    color: var(--success);
+    flex-shrink: 0;
+}
+
+.checkin-item.short .checkin-item-flag {
+    color: #f87171;
+}
+
+.checkin-item-done {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--success);
+    flex-shrink: 0;
+}
+
+#checkinCount.has-missing {
+    color: #f87171;
+    font-weight: 600;
+}
+
+.btn-checkin-confirm.is-partial {
+    background: var(--danger);
+    border-color: var(--danger);
+}
+
+/* Missing category card */
+.category-card-missing.has-missing {
+    border-color: rgba(239, 68, 68, 0.5);
+    background: linear-gradient(180deg, rgba(239, 68, 68, 0.09), transparent);
+}
+
+.category-card-missing.has-missing:hover {
+    border-color: var(--danger);
+}
+
+.category-card-missing.has-missing .category-card-count {
+    color: #f87171;
+}
+
+/* Missing items view */
+.missing-summary {
+    margin: 4px 0 16px 0;
+    padding: 12px 16px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    font-size: 14px;
+}
+
+.missing-summary-alert {
+    color: #fca5a5;
+}
+
+.missing-summary-alert strong {
+    color: #fecaca;
+}
+
+.missing-summary-ok {
+    color: var(--success);
+}
+
+.missing-qty-badge {
+    display: inline-block;
+    min-width: 26px;
+    padding: 3px 9px;
+    text-align: center;
+    border-radius: 20px;
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+    font-weight: 700;
+}
+
+.missing-dc-link {
+    display: block;
+    width: 100%;
+    margin-bottom: 4px;
+    padding: 5px 10px;
+    text-align: left;
+    font-size: 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.missing-dc-link:hover {
+    border-color: var(--primary);
+    color: var(--text-primary);
+}
+
+@media (max-width: 768px) {
+    .checkin-item {
+        flex-wrap: wrap;
+    }
+
+    .checkin-item-flag {
+        text-align: left;
+        min-width: 0;
+    }
+}
+
+/* ==================== THEMED CONFIRM DIALOG ==================== */
+
+.app-confirm {
+    /* Sits above the check-in / check-out modals (z-index 1000). */
+    z-index: 1500;
+    background: rgba(2, 6, 23, 0.78);
+    backdrop-filter: blur(2px);
+}
+
+.app-confirm-content {
+    max-width: 480px;
+    padding: 24px;
+    border: 1px solid var(--border);
+    box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.6);
+}
+
+.app-confirm-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+}
+
+.app-confirm-icon {
+    flex-shrink: 0;
+    width: 42px;
+    height: 42px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    border-radius: 50%;
+    background: rgba(239, 68, 68, 0.14);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.app-confirm-heading h3 {
+    font-size: 17px;
+    font-weight: 600;
+    line-height: 1.35;
+    margin-bottom: 6px;
+}
+
+.app-confirm-heading p {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.app-confirm-list {
+    margin-top: 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-dark);
+    overflow: hidden;
+}
+
+.app-confirm-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 14px;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+}
+
+.app-confirm-row:last-child {
+    border-bottom: none;
+}
+
+.app-confirm-row-label {
+    font-weight: 500;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.app-confirm-row-value {
+    flex-shrink: 0;
+    color: #f87171;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.app-confirm-note {
+    margin-top: 14px;
+    padding: 10px 12px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    background: var(--bg-dark);
+    border-left: 2px solid var(--warning);
+    border-radius: var(--radius-sm);
+}
+
+.app-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 22px;
+}
+
+.app-confirm-actions .btn-secondary {
+    padding: 10px 20px;
+}
+
+.app-confirm-ok {
+    padding: 10px 20px;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.app-confirm-ok.tone-danger {
+    background: linear-gradient(135deg, #ef4444, #b91c1c);
+}
+
+.app-confirm-ok.tone-primary {
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+}
+
+.app-confirm-ok:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.08);
+}
+
+.app-confirm-ok:focus-visible {
+    outline: 2px solid var(--primary-light);
+    outline-offset: 2px;
+}
+
+@media (max-width: 520px) {
+    .app-confirm-actions {
+        flex-direction: column-reverse;
+    }
+
+    .app-confirm-actions button {
+        width: 100%;
+    }
 }

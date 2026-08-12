@@ -7,7 +7,8 @@ const HEADERS = [
   'Category',
   'Quantity',
   'Return Condition',
-  'Return Notes'
+  'Return Notes',
+  'Returned Qty'
 ];
 
 exports.handler = async (event) => {

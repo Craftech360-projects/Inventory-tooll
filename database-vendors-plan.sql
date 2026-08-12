@@ -32,6 +32,10 @@ alter table public.vendors
 create index if not exists vendors_category_idx
   on public.vendors ("Category");
 
+-- Run this block once to add the POC (point of contact) name the form now has:
+alter table public.vendors
+  add column if not exists "POC Name" text;
+
 -- Current app tables continue storing the selected vendor name/contact in
 -- items and purchase_requests. For stricter reporting later, add a vendor key
 -- column to those tables and backfill it from the selected vendor name:

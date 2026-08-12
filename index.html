@@ -333,6 +333,30 @@
                 </div>
             </section>
 
+            <!-- Missing Items View -->
+            <section id="missingItemsView" class="view">
+                <div class="toolbar">
+                    <button class="btn-back" onclick="switchView('categories')">&#x2190; Back to Categories</button>
+                </div>
+                <div class="missing-summary" id="missingItemsSummary"></div>
+                <div class="table-container">
+                    <table class="inventory-table missing-items-table">
+                        <thead>
+                            <tr>
+                                <th>Item ID</th>
+                                <th>Name</th>
+                                <th>Category</th>
+                                <th>Missing Qty</th>
+                                <th>Received / Sent</th>
+                                <th>Delivery Channel</th>
+                            </tr>
+                        </thead>
+                        <tbody id="missingItemsTableBody">
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
             <!-- Vendors View -->
             <section id="vendorsView" class="view">
                 <div class="vendor-layout">
@@ -345,6 +369,10 @@
                                     <input type="text" id="vendorName" required placeholder="Company or person name">
                                 </div>
                                 <div class="form-group">
+                                    <label>POC Name</label>
+                                    <input type="text" id="vendorPocName" placeholder="Point of contact">
+                                </div>
+                                <div class="form-group">
                                     <label>Vendor Contact Number *</label>
                                     <input type="tel" id="vendorContactNumber" required placeholder="+91 98765 43210">
                                 </div>
@@ -352,7 +380,7 @@
                                     <label>Email</label>
                                     <input type="email" id="vendorEmail" placeholder="accounts@vendor.com">
                                 </div>
-                                <div class="form-group">
+                                <div class="form-group span-2">
                                     <label>GSTIN</label>
                                     <input type="text" id="vendorGstin" maxlength="15" placeholder="15 digit GSTIN">
                                 </div>
@@ -400,23 +428,28 @@
                                 <button class="btn-secondary vendor-refresh-btn" onclick="loadVendorData()">Refresh</button>
                             </div>
                         </div>
+                        <div class="col-filter-banner" id="vendorColumnFilterBanner" style="display:none;">
+                            <span id="vendorColumnFilterBannerText"></span>
+                            <button onclick="clearAllColumnFilters('vendor')">&#8634; Reset all filters</button>
+                        </div>
                         <div class="table-container vendor-table-container">
                             <table class="inventory-table vendor-table">
                                 <thead>
                                     <tr>
-                                        <th>Vendor</th>
-                                        <th>Contact</th>
-                                        <th>Email</th>
-                                        <th>GSTIN</th>
-                                        <th>City</th>
-                                        <th>Category</th>
-                                        <th>Address</th>
+                                        <th><span class="th-label">Vendor</span><button class="col-filter-btn" data-scope="vendor" data-col="name" onclick="openColumnFilter('vendor','name', this)" aria-label="Filter by vendor name">&#9662;</button></th>
+                                        <th><span class="th-label">POC Name</span><button class="col-filter-btn" data-scope="vendor" data-col="pocName" onclick="openColumnFilter('vendor','pocName', this)" aria-label="Filter by POC name">&#9662;</button></th>
+                                        <th><span class="th-label">Contact</span><button class="col-filter-btn" data-scope="vendor" data-col="contactNumber" onclick="openColumnFilter('vendor','contactNumber', this)" aria-label="Filter by contact">&#9662;</button></th>
+                                        <th><span class="th-label">Email</span><button class="col-filter-btn" data-scope="vendor" data-col="email" onclick="openColumnFilter('vendor','email', this)" aria-label="Filter by email">&#9662;</button></th>
+                                        <th><span class="th-label">GSTIN</span><button class="col-filter-btn" data-scope="vendor" data-col="gstin" onclick="openColumnFilter('vendor','gstin', this)" aria-label="Filter by GSTIN">&#9662;</button></th>
+                                        <th><span class="th-label">City</span><button class="col-filter-btn" data-scope="vendor" data-col="city" onclick="openColumnFilter('vendor','city', this)" aria-label="Filter by city">&#9662;</button></th>
+                                        <th><span class="th-label">Category</span><button class="col-filter-btn" data-scope="vendor" data-col="category" onclick="openColumnFilter('vendor','category', this)" aria-label="Filter by category">&#9662;</button></th>
+                                        <th><span class="th-label">Address</span><button class="col-filter-btn" data-scope="vendor" data-col="address" onclick="openColumnFilter('vendor','address', this)" aria-label="Filter by address">&#9662;</button></th>
                                         <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="vendorTableBody">
                                     <tr>
-                                        <td colspan="8">No vendors loaded</td>
+                                        <td colspan="9">No vendors loaded</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -438,6 +471,7 @@
                             <option value="At Event">&#x1F4CD; At Event</option>
                             <option value="Returning">&#x21A9;&#xFE0F; Returning</option>
                             <option value="Inspection">&#x1F50D; Inspection</option>
+                            <option value="Partially Returned">&#x26A0;&#xFE0F; Items Missing</option>
                             <option value="Closed">&#x2705; Closed</option>
                         </select>
                         <input type="text" id="dcSearch" placeholder="Search by event/client..." onkeyup="filterDCs()">
@@ -1139,9 +1173,12 @@
                 <button class="close-btn" onclick="closeCheckinModal()">&times;</button>
             </div>
             <div class="modal-body">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                    <p style="color: var(--text-muted); margin: 0;">Verify all returned items.</p>
-                    <button class="btn-select-all" onclick="selectAllCheckin()">&#x2713; Select All</button>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px; flex-wrap: wrap;">
+                    <p style="color: var(--text-muted); margin: 0;">Enter how many units of each item actually came back.</p>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn-select-all" onclick="selectAllCheckin()">&#x2713; All Received</button>
+                        <button class="btn-select-all" onclick="clearAllCheckin()">&#x2717; None Received</button>
+                    </div>
                 </div>
                 <div id="checkinItemsList" class="checkout-items-list">
                     <!-- Items will be loaded here -->
@@ -1159,6 +1196,25 @@
                 <button class="btn-checkin-confirm" id="confirmCheckinBtn" onclick="confirmCheckin()">
                     Confirm Check In & Close DC &#x2713;
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirm Dialog (themed replacement for window.confirm) -->
+    <div id="appConfirmModal" class="modal app-confirm">
+        <div class="modal-content app-confirm-content">
+            <div class="app-confirm-head">
+                <div class="app-confirm-icon" id="appConfirmIcon">&#x26A0;&#xFE0F;</div>
+                <div class="app-confirm-heading">
+                    <h3 id="appConfirmTitle">Are you sure?</h3>
+                    <p id="appConfirmMessage"></p>
+                </div>
+            </div>
+            <div class="app-confirm-list" id="appConfirmList"></div>
+            <p class="app-confirm-note" id="appConfirmNote"></p>
+            <div class="app-confirm-actions">
+                <button type="button" class="btn-secondary" id="appConfirmCancel">Cancel</button>
+                <button type="button" class="app-confirm-ok" id="appConfirmOk">Confirm</button>
             </div>
         </div>
     </div>

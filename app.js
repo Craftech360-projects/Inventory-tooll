@@ -149,6 +149,7 @@ let filteredData = [];
 let isInventoryLoading = false;
 let isAddingItem = false;
 let vendorData = [];
+let vendorFilteredRows = [];
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -490,7 +491,8 @@ function mapRowsToVendors(rows) {
             gstin: row[4] || '',
             city: row[5] || '',
             category: row[6] || '',
-            createdDate: row[7] || ''
+            pocName: row[7] || '',
+            createdDate: row[8] || ''
         }));
 }
 
@@ -517,17 +519,17 @@ async function loadVendorData() {
 function vendorExportRows() {
     return vendorData
         .filter(v => matchesDateFilter('vendor', v.createdDate))
-        .map(v => [v.name, v.contactNumber, v.email, v.gstin, v.city, v.category, v.address]);
+        .map(v => [v.name, v.pocName, v.contactNumber, v.email, v.gstin, v.city, v.category, v.address]);
 }
 
+const VENDOR_EXPORT_HEADERS = ['Vendor Name', 'POC Name', 'Contact', 'Email', 'GSTIN', 'City', 'Category', 'Address'];
+
 function exportVendorsCSV() {
-    const headers = ['Vendor Name', 'Contact', 'Email', 'GSTIN', 'City', 'Category', 'Address'];
-    downloadCSV(`cft-vendors-${todayStamp()}.csv`, headers, vendorExportRows());
+    downloadCSV(`cft-vendors-${todayStamp()}.csv`, VENDOR_EXPORT_HEADERS, vendorExportRows());
 }
 
 function exportVendorsPDF() {
-    const headers = ['Vendor Name', 'Contact', 'Email', 'GSTIN', 'City', 'Category', 'Address'];
-    downloadTableAsPDF('Vendor List', `cft-vendors-${todayStamp()}.pdf`, headers, vendorExportRows());
+    downloadTableAsPDF('Vendor List', `cft-vendors-${todayStamp()}.pdf`, VENDOR_EXPORT_HEADERS, vendorExportRows());
 }
 
 function populateVendorSelects() {
@@ -593,31 +595,43 @@ function renderVendorTable(message = '') {
     if (!tbody) return;
 
     if (message) {
-        tbody.innerHTML = `<tr><td colspan="8">${escapeHtml(message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9">${escapeHtml(message)}</td></tr>`;
         return;
     }
 
     if (vendorData.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8">No vendors added yet</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9">No vendors added yet</td></tr>';
         return;
     }
 
-    // Keep the original index — the Delete button addresses vendorData directly,
-    // so filtering must not renumber the rows.
-    const rows = vendorData
-        .map((vendor, index) => ({ vendor, index }))
-        .filter(({ vendor }) => matchesDateFilter('vendor', vendor.createdDate));
+    const dateFiltered = vendorBaseRows();
+    updateDateFilterCount('vendor', dateFiltered.length, vendorData.length);
 
-    updateDateFilterCount('vendor', rows.length, vendorData.length);
+    if (dateFiltered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9">No vendors match the selected dates</td></tr>';
+        vendorFilteredRows = [];
+        updateColumnFilterIndicators('vendor');
+        return;
+    }
+
+    // Column-filtered/sorted rows are the same vendorData objects, so the
+    // Delete button can look its index back up without the pipeline having
+    // to thread it through.
+    const rows = applyColumnPipeline('vendor');
+    vendorFilteredRows = rows;
+    updateColumnFilterIndicators('vendor');
 
     if (rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8">No vendors match the selected dates</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9">No vendors match the selected filters</td></tr>';
         return;
     }
 
-    tbody.innerHTML = rows.map(({ vendor, index }) => `
+    tbody.innerHTML = rows.map(vendor => {
+        const index = vendorData.indexOf(vendor);
+        return `
         <tr>
             <td><span class="vendor-name-cell">${escapeHtml(vendor.name)}</span></td>
+            <td>${escapeHtml(vendor.pocName || '-')}</td>
             <td><span class="vendor-contact-cell">${escapeHtml(vendor.contactNumber)}</span></td>
             <td>${escapeHtml(vendor.email || '-')}</td>
             <td><span class="vendor-code-cell">${escapeHtml(vendor.gstin || '-')}</span></td>
@@ -628,7 +642,8 @@ function renderVendorTable(message = '') {
                 <button type="button" class="action-btn vendor-delete-btn" onclick="deleteVendor(${index})">Delete</button>
             </td>
         </tr>
-    `).join('');
+    `;
+    }).join('');
 }
 
 async function saveVendor(event) {
@@ -636,6 +651,7 @@ async function saveVendor(event) {
 
     const vendor = {
         name: document.getElementById('vendorName').value.trim(),
+        pocName: document.getElementById('vendorPocName').value.trim(),
         contactNumber: document.getElementById('vendorContactNumber').value.trim(),
         email: document.getElementById('vendorEmail').value.trim(),
         address: document.getElementById('vendorAddress').value.trim(),
@@ -864,7 +880,7 @@ function updateInventoryTable() {
     const tbody = document.getElementById('inventoryTableBody');
     
     if (filteredData.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px; color: var(--text-muted);">No items found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 40px; color: var(--text-muted);">No items found</td></tr>';
         return;
     }
 
@@ -933,6 +949,9 @@ function updateCategoriesView() {
         }
     });
     
+    const missingUnits = getTotalMissingUnits();
+    const missingItemCount = getMissingItemsSummary().length;
+
     grid.innerHTML = Object.entries(categoryCounts).map(([cat, count]) => `
         <div class="category-card" onclick="filterByCategory('${cat}')">
             <div class="category-card-icon">${CATEGORY_ICONS[cat]}</div>
@@ -940,6 +959,57 @@ function updateCategoriesView() {
             <div class="category-card-count">${count}</div>
             <div class="category-card-label">items</div>
         </div>
+    `).join('') + `
+        <div class="category-card category-card-missing ${missingUnits > 0 ? 'has-missing' : ''}" onclick="openMissingItems()">
+            <div class="category-card-icon">⚠️</div>
+            <div class="category-card-name">Missing</div>
+            <div class="category-card-count">${missingUnits}</div>
+            <div class="category-card-label">${missingUnits === 1 ? 'unit' : 'units'} not returned${missingItemCount ? ` • ${missingItemCount} item${missingItemCount === 1 ? '' : 's'}` : ''}</div>
+        </div>
+    `;
+}
+
+// ==================== MISSING ITEMS VIEW ====================
+
+function openMissingItems() {
+    switchView('missingItems');
+    updateMissingItemsView();
+}
+
+function updateMissingItemsView() {
+    const body = document.getElementById('missingItemsTableBody');
+    const summary = document.getElementById('missingItemsSummary');
+    if (!body) return;
+
+    const rows = getMissingItemsSummary();
+    const totalUnits = rows.reduce((sum, r) => sum + r.missing, 0);
+
+    if (summary) {
+        summary.innerHTML = totalUnits === 0
+            ? '<span class="missing-summary-ok">✅ Nothing missing — every dispatched unit has been received back.</span>'
+            : `<span class="missing-summary-alert">⚠️ <strong>${totalUnits}</strong> unit${totalUnits === 1 ? '' : 's'} missing across <strong>${rows.length}</strong> item${rows.length === 1 ? '' : 's'}.</span>`;
+    }
+
+    if (rows.length === 0) {
+        body.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-muted);">No missing items 🎉</td></tr>';
+        return;
+    }
+
+    body.innerHTML = rows.map(row => `
+        <tr>
+            <td><code>${escapeHtml(row.itemId)}</code></td>
+            <td>${escapeHtml(row.itemName)}</td>
+            <td>${CATEGORY_ICONS[row.category] || '\u{1F4E6}'} ${escapeHtml(row.category)}</td>
+            <td><span class="missing-qty-badge">${row.missing}</span></td>
+            <td>${row.returned} / ${row.dispatched}</td>
+            <td>
+                ${row.sources.map(src => `
+                    <button class="missing-dc-link" onclick="viewDCDetail('${src.dcNumber}')">
+                        ${escapeHtml(src.dcNumber)} · ${escapeHtml(src.eventName || 'Untitled')} · ${src.missing} missing
+                    </button>
+                `).join('')}
+            </td>
+        </tr>
     `).join('');
 }
 
@@ -997,7 +1067,7 @@ function filterStatDetail() {
 function renderStatDetailTable(data) {
     const tbody = document.getElementById('statDetailTableBody');
     if (data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px; color: var(--text-muted);">No items found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 40px; color: var(--text-muted);">No items found</td></tr>';
         return;
     }
     tbody.innerHTML = data.map(renderInventoryTableRow).join('');
@@ -1346,6 +1416,83 @@ function downloadTableAsPDF(title, filename, headers, rows) {
 }
 
 // Toast
+// Themed stand-in for window.confirm — the native dialog ignores the app's
+// styling and can't show a breakdown of what's about to happen.
+// Returns a Promise<boolean>, so callers must await it.
+let appConfirmResolver = null;
+
+function showConfirmDialog({
+    title = 'Are you sure?',
+    message = '',
+    items = [],
+    note = '',
+    confirmLabel = 'Confirm',
+    cancelLabel = 'Cancel',
+    icon = '⚠️',
+    tone = 'danger'
+} = {}) {
+    const modal = document.getElementById('appConfirmModal');
+    // No dialog in the DOM (older cached page) — fall back rather than block.
+    if (!modal) return Promise.resolve(window.confirm(`${title}\n\n${message}`));
+
+    document.getElementById('appConfirmIcon').textContent = icon;
+    document.getElementById('appConfirmTitle').textContent = title;
+
+    const messageEl = document.getElementById('appConfirmMessage');
+    messageEl.textContent = message;
+    messageEl.style.display = message ? 'block' : 'none';
+
+    const listEl = document.getElementById('appConfirmList');
+    listEl.innerHTML = items.map(item => `
+        <div class="app-confirm-row">
+            <span class="app-confirm-row-label">${escapeHtml(item.label)}</span>
+            <span class="app-confirm-row-value">${escapeHtml(item.value)}</span>
+        </div>
+    `).join('');
+    listEl.style.display = items.length ? 'block' : 'none';
+
+    const noteEl = document.getElementById('appConfirmNote');
+    noteEl.textContent = note;
+    noteEl.style.display = note ? 'block' : 'none';
+
+    const okBtn = document.getElementById('appConfirmOk');
+    const cancelBtn = document.getElementById('appConfirmCancel');
+    okBtn.textContent = confirmLabel;
+    cancelBtn.textContent = cancelLabel;
+    okBtn.className = `app-confirm-ok tone-${tone}`;
+
+    modal.classList.add('active');
+    setTimeout(() => okBtn.focus(), 50);
+
+    return new Promise(resolve => {
+        appConfirmResolver = resolve;
+    });
+}
+
+function resolveAppConfirm(answer) {
+    const modal = document.getElementById('appConfirmModal');
+    if (modal) modal.classList.remove('active');
+
+    const resolve = appConfirmResolver;
+    appConfirmResolver = null;
+    if (resolve) resolve(answer);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const modal = document.getElementById('appConfirmModal');
+    if (!modal) return;
+
+    document.getElementById('appConfirmOk').addEventListener('click', () => resolveAppConfirm(true));
+    document.getElementById('appConfirmCancel').addEventListener('click', () => resolveAppConfirm(false));
+    // Clicking the backdrop or pressing Escape means "no".
+    modal.addEventListener('click', e => {
+        if (e.target === modal) resolveAppConfirm(false);
+    });
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && modal.classList.contains('active')) resolveAppConfirm(false);
+    });
+});
+
 function showToast(message, type = 'success') {
     const toast = document.getElementById('toast');
     toast.textContent = message;
@@ -1424,8 +1571,134 @@ const DC_STATUS_LABELS = {
     'At Event': '📍 At Event',
     'Returning': '↩️ Returning',
     'Inspection': '🔍 Inspection',
+    'Partially Returned': '⚠️ Items Missing',
     'Closed': '✅ Closed'
 };
+
+// ==================== MISSING ITEMS (PARTIAL RETURNS) ====================
+
+// A DC only counts as having missing stock once someone has actually tried to
+// check it in and units didn't come back. Items still out at a live event are
+// "in use", not missing.
+const DC_MISSING_STATUSES = new Set(['Partially Returned']);
+
+// dcNumber -> { units, lines, items: [...] } for DCs with unreturned stock.
+let dcMissingByDC = {};
+
+function parseDCItemRow(row) {
+    const quantity = parseInt(row[4], 10) || 0;
+    const returned = Math.max(0, Math.min(quantity, parseInt(row[7], 10) || 0));
+    return {
+        dcNumber: (row[0] || '').trim(),
+        itemId: row[1] || '',
+        itemName: row[2] || '',
+        category: row[3] || '',
+        quantity,
+        returnCondition: row[5] || '',
+        returnNotes: row[6] || '',
+        returned,
+        missing: Math.max(0, quantity - returned)
+    };
+}
+
+// Pulls every DC line in one request so the list cards, the categories tile and
+// the missing view all read from the same numbers.
+async function loadDCMissingData() {
+    try {
+        const response = await fetch('/.netlify/functions/get-dc-items?_=' + Date.now(), { cache: 'no-store' });
+        const rows = parseCSV(await response.text()).slice(1);
+
+        const statusByDC = {};
+        dcData.forEach(dc => { statusByDC[dc.dcNumber] = dc.status; });
+
+        const map = {};
+        rows.forEach(row => {
+            const line = parseDCItemRow(row);
+            if (!line.dcNumber || line.missing <= 0) return;
+            if (!DC_MISSING_STATUSES.has(statusByDC[line.dcNumber])) return;
+
+            if (!map[line.dcNumber]) map[line.dcNumber] = { units: 0, lines: 0, items: [] };
+            map[line.dcNumber].units += line.missing;
+            map[line.dcNumber].lines += 1;
+            map[line.dcNumber].items.push(line);
+        });
+
+        dcMissingByDC = map;
+    } catch (error) {
+        console.error('Error loading missing item data:', error);
+        dcMissingByDC = {};
+    }
+}
+
+function getDCMissing(dcNumber) {
+    return dcMissingByDC[dcNumber] || null;
+}
+
+// Flattened, one row per item — the same item missing from two DCs is one row
+// with the totals combined, so "how many are we short?" has a single answer.
+function getMissingItemsSummary() {
+    const byItem = {};
+
+    Object.entries(dcMissingByDC).forEach(([dcNumber, missing]) => {
+        const dc = dcData.find(d => d.dcNumber === dcNumber);
+        missing.items.forEach(line => {
+            const key = line.itemId || line.itemName;
+            if (!byItem[key]) {
+                byItem[key] = {
+                    itemId: line.itemId,
+                    itemName: line.itemName,
+                    category: line.category,
+                    missing: 0,
+                    dispatched: 0,
+                    returned: 0,
+                    sources: []
+                };
+            }
+            const entry = byItem[key];
+            entry.missing += line.missing;
+            entry.dispatched += line.quantity;
+            entry.returned += line.returned;
+            entry.sources.push({
+                dcNumber,
+                eventName: dc?.eventName || '',
+                eventDate: dc?.eventDate || '',
+                expectedReturn: dc?.expectedReturn || '',
+                missing: line.missing
+            });
+        });
+    });
+
+    return Object.values(byItem).sort((a, b) => b.missing - a.missing);
+}
+
+function getTotalMissingUnits() {
+    return Object.values(dcMissingByDC).reduce((sum, entry) => sum + entry.units, 0);
+}
+
+function renderDCMissingBanner(dcNumber, { compact = false } = {}) {
+    const missing = getDCMissing(dcNumber);
+    if (!missing) return '';
+
+    const unitLabel = missing.units === 1 ? 'unit' : 'units';
+    const itemLabel = missing.lines === 1 ? 'item' : 'items';
+    const detail = compact
+        ? ''
+        : `<div class="dc-missing-banner-list">${missing.items.map(line =>
+            `<span class="dc-missing-chip">${escapeHtml(line.itemName || line.itemId)} — ${line.missing} of ${line.quantity} not received</span>`
+        ).join('')}</div>`;
+
+    return `
+        <div class="dc-missing-banner">
+            <div class="dc-missing-banner-head">
+                <span class="dc-missing-banner-icon">⚠️</span>
+                <span class="dc-missing-banner-text">
+                    <strong>${missing.units} ${unitLabel}</strong> across ${missing.lines} ${itemLabel} not received back — this DC cannot be closed yet.
+                </span>
+            </div>
+            ${detail}
+        </div>
+    `;
+}
 
 // Load DC Data
 async function loadDCData() {
@@ -1477,11 +1750,19 @@ async function loadDCData() {
         }).filter(row => row.dcNumber && (row.status || '').toLowerCase() !== 'deleted');
 
         filteredDCs = [...dcData];
+        await loadDCMissingData();
         updateDCList();
+        // Inventory may still be loading on first paint; loadData() renders the
+        // categories grid itself once it lands.
+        if (inventoryData.length > 0) updateCategoriesView();
+        if (document.getElementById('missingItemsView')?.classList.contains('active')) {
+            updateMissingItemsView();
+        }
     } catch (error) {
         console.error('Error loading DC data:', error);
         dcData = [];
         filteredDCs = [];
+        dcMissingByDC = {};
         updateDCList();
     }
 }
@@ -1507,7 +1788,7 @@ function updateDCList() {
     }
     
     container.innerHTML = filteredDCs.map(dc => `
-        <div class="dc-card" onclick="viewDCDetail('${dc.dcNumber}')">
+        <div class="dc-card ${getDCMissing(dc.dcNumber) ? 'dc-card-missing' : ''}" onclick="viewDCDetail('${dc.dcNumber}')">
             <div class="dc-card-header">
                 <div class="dc-card-heading">
                     <div class="dc-card-title">${dc.eventName || '-'}</div>
@@ -1516,8 +1797,9 @@ function updateDCList() {
                         <span class="dc-card-activity">${dc.activity || 'General'}</span>
                     </div>
                 </div>
-                <span class="dc-card-status dc-status-${dc.status.toLowerCase().replace(' ', '')}">${DC_STATUS_LABELS[dc.status] || dc.status}</span>
+                <span class="dc-card-status dc-status-${dc.status.toLowerCase().replace(/\s+/g, '')}">${DC_STATUS_LABELS[dc.status] || dc.status}</span>
             </div>
+            ${renderDCMissingBanner(dc.dcNumber)}
             <div class="dc-card-details">
                 <div class="dc-card-detail">
                     <span class="dc-card-detail-label">Client</span>
@@ -1793,24 +2075,29 @@ function viewDCDetail(dcNumber) {
         'At Event': 1,
         'Returning': 2,
         'Inspection': 2,
+        'Partially Returned': 2,
         'Closed': 3
     };
     const currentStep = statusMap[dc.status] || 0;
-    
+    const missing = getDCMissing(dcNumber);
+
     // Determine which action buttons to show
     let checkOutBtn = '';
     let checkInBtn = '';
-    
+
     // Show Check Out button when Draft (simplified - no approval needed)
     if (['Draft', 'Pending Approval', 'Approved'].includes(dc.status)) {
         checkOutBtn = `<button class="btn-checkout" onclick="openCheckoutModal('${dcNumber}')">📤 Check Out</button>`;
     }
-    
-    // Show Check In button when Checked Out
+
+    // Show Check In button when Checked Out, and again while units are still
+    // outstanding so the rest can be received later.
     if (['Dispatched', 'At Event', 'Returning', 'Inspection'].includes(dc.status)) {
         checkInBtn = `<button class="btn-checkin" onclick="openCheckinModal('${dcNumber}')">📥 Check In</button>`;
+    } else if (dc.status === 'Partially Returned') {
+        checkInBtn = `<button class="btn-checkin" onclick="openCheckinModal('${dcNumber}')">📥 Receive Remaining Items</button>`;
     }
-    
+
     container.innerHTML = `
         <div class="dc-detail-header">
             <div class="dc-detail-title-block">
@@ -1834,12 +2121,14 @@ function viewDCDetail(dcNumber) {
         <!-- Status Tabs (Minimalistic) -->
         <div class="status-tabs">
             ${statuses.map((status, idx) => `
-                <div class="status-tab ${idx < currentStep ? 'completed' : ''} ${idx === currentStep ? 'active' : ''}">
+                <div class="status-tab ${idx < currentStep ? 'completed' : ''} ${idx === currentStep ? 'active' : ''} ${idx === currentStep && missing ? 'blocked' : ''}">
                     ${status}
                 </div>
             `).join('')}
         </div>
-        
+
+        ${renderDCMissingBanner(dcNumber)}
+
         <div class="dc-detail-section">
             <h4>Event Details</h4>
             <div class="dc-detail-grid">
@@ -2084,14 +2373,16 @@ async function loadDCItems(dcNumber) {
         const csvText = await response.text();
         const data = parseCSV(csvText);
         
-        const items = data.slice(1).filter(row => row[0] === dcNumber);
-        
+        const dc = dcData.find(d => d.dcNumber === dcNumber);
+        const tracksReturns = dc && !['Draft', 'Pending Approval', 'Approved'].includes(dc.status);
+        const items = data.slice(1).filter(row => row[0] === dcNumber).map(parseDCItemRow);
+
         const container = document.getElementById('dcItemsTable');
         if (items.length === 0) {
             container.innerHTML = '<p style="color: var(--text-muted);">No items found</p>';
             return;
         }
-        
+
         container.innerHTML = `
             <table class="dc-items-table">
                 <thead>
@@ -2099,22 +2390,28 @@ async function loadDCItems(dcNumber) {
                         <th>Item ID</th>
                         <th>Name</th>
                         <th>Category</th>
-                        <th>Qty</th>
+                        <th>Sent</th>
+                        <th>Received</th>
+                        <th>Missing</th>
                         <th>Return Condition</th>
                         <th>Notes</th>
                     </tr>
                 </thead>
                 <tbody>
-                    ${items.map(item => `
-                        <tr>
-                            <td><code>${item[1]}</code></td>
-                            <td>${item[2]}</td>
-                            <td>${item[3]}</td>
-                            <td>${item[4]}</td>
-                            <td>${item[5] || '-'}</td>
-                            <td>${item[6] || '-'}</td>
+                    ${items.map(item => {
+                        const missingQty = tracksReturns ? item.missing : 0;
+                        return `
+                        <tr class="${missingQty > 0 ? 'dc-item-row-missing' : ''}">
+                            <td><code>${escapeHtml(item.itemId)}</code></td>
+                            <td>${escapeHtml(item.itemName)}</td>
+                            <td>${escapeHtml(item.category)}</td>
+                            <td>${item.quantity}</td>
+                            <td>${tracksReturns ? item.returned : '-'}</td>
+                            <td>${missingQty > 0 ? `<span class="dc-missing-qty">⚠️ ${missingQty}</span>` : (tracksReturns ? '0' : '-')}</td>
+                            <td>${escapeHtml(item.returnCondition) || '-'}</td>
+                            <td>${escapeHtml(item.returnNotes) || '-'}</td>
                         </tr>
-                    `).join('')}
+                    `;}).join('')}
                 </tbody>
             </table>
         `;
@@ -2169,12 +2466,15 @@ async function updateDCStatus(dcNumber, newStatus) {
 async function closeDC(dcNumber) {
     const today = new Date().toISOString().split('T')[0];
     try {
+        // The server refuses to close a DC with unreturned units — surface that
+        // reason instead of a generic failure.
         await supabaseAction('closeDC', { dcNumber, actualReturn: today });
-        
+
         showToast('✅ DC Closed!', 'success');
         setTimeout(async () => { await loadDCData(); await new Promise(r => setTimeout(r, 1000)); viewDCDetail(dcNumber); }, 1500);
     } catch (error) {
-        showToast('Error closing DC', 'error');
+        console.error('Error closing DC:', error);
+        showToast(error.message || 'Error closing DC', 'error');
     }
 }
 
@@ -2651,27 +2951,34 @@ async function openCheckinModal(dcNumber) {
     currentCheckinDC = dcNumber;
     const modal = document.getElementById('checkinModal');
     const itemsList = document.getElementById('checkinItemsList');
-    
+
     itemsList.innerHTML = '<p style="text-align:center;padding:20px;">Loading items...</p>';
     modal.classList.add('active');
-    
+
     try {
         const response = await fetch('/.netlify/functions/get-dc-items?dc=' + dcNumber + '&_=' + Date.now());
         const csvText = await response.text();
         const data = parseCSV(csvText);
-        checkinItems = data.slice(1).filter(row => row[0] === dcNumber).map(item => ({
-            itemId: item[1],
-            itemName: item[2],
-            category: item[3],
-            qty: parseInt(item[4]) || 1,
-            checked: false
-        }));
-        
+        // received counts units coming back in THIS check-in. Lines that came
+        // back in an earlier partial check-in stay listed but locked.
+        checkinItems = data.slice(1).filter(row => row[0] === dcNumber).map(row => {
+            const line = parseDCItemRow(row);
+            return {
+                itemId: line.itemId,
+                itemName: line.itemName,
+                category: line.category,
+                qty: line.quantity,
+                alreadyReturned: line.returned,
+                outstanding: line.missing,
+                received: line.missing
+            };
+        });
+
         if (checkinItems.length === 0) {
             itemsList.innerHTML = '<p style="text-align:center;padding:20px;color:var(--text-muted);">No items to check in</p>';
             return;
         }
-        
+
         renderCheckinItems();
         updateCheckinCount();
     } catch (e) {
@@ -2682,32 +2989,111 @@ async function openCheckinModal(dcNumber) {
 
 function renderCheckinItems() {
     const itemsList = document.getElementById('checkinItemsList');
-    itemsList.innerHTML = checkinItems.map((item, idx) => `
-        <div class="checkout-item ${item.checked ? 'checked' : ''}" onclick="toggleCheckinItem(${idx})">
-            <div class="checkout-item-checkbox">${item.checked ? '✓' : ''}</div>
-            <div class="checkout-item-info">
-                <div class="checkout-item-name">${item.itemName}</div>
-                <div class="checkout-item-meta">${item.itemId} • ${item.category}</div>
+    itemsList.innerHTML = checkinItems.map((item, idx) => {
+        if (item.outstanding === 0) {
+            return `
+                <div class="checkin-item complete">
+                    <div class="checkin-item-info">
+                        <div class="checkout-item-name">${escapeHtml(item.itemName)}</div>
+                        <div class="checkout-item-meta">${escapeHtml(item.itemId)} • ${escapeHtml(item.category)}</div>
+                    </div>
+                    <div class="checkin-item-done">✅ All ${item.qty} received</div>
+                </div>
+            `;
+        }
+
+        const short = item.outstanding - item.received;
+        return `
+            <div class="checkin-item ${short > 0 ? 'short' : ''}" id="checkinRow-${idx}">
+                <div class="checkin-item-info">
+                    <div class="checkout-item-name">${escapeHtml(item.itemName)}</div>
+                    <div class="checkout-item-meta">
+                        ${escapeHtml(item.itemId)} • ${escapeHtml(item.category)} • Sent ${item.qty}${item.alreadyReturned > 0 ? ` • ${item.alreadyReturned} already back` : ''}
+                    </div>
+                </div>
+                <div class="checkin-item-controls">
+                    <button type="button" class="checkin-step" onclick="stepCheckinQty(${idx}, -1)" ${item.received <= 0 ? 'disabled' : ''}>−</button>
+                    <input type="number" class="checkin-qty-input" min="0" max="${item.outstanding}" value="${item.received}"
+                           onchange="setCheckinQty(${idx}, this.value)" oninput="setCheckinQty(${idx}, this.value, true)">
+                    <span class="checkin-qty-of">/ ${item.outstanding}</span>
+                    <button type="button" class="checkin-step" onclick="stepCheckinQty(${idx}, 1)" ${item.received >= item.outstanding ? 'disabled' : ''}>+</button>
+                </div>
+                <div class="checkin-item-flag">${short > 0 ? `⚠️ ${short} missing` : '✓ all received'}</div>
             </div>
-            <div class="checkout-item-qty">×${item.qty}</div>
-        </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
-function toggleCheckinItem(idx) {
-    checkinItems[idx].checked = !checkinItems[idx].checked;
+function clampCheckinQty(idx, value) {
+    const item = checkinItems[idx];
+    const parsed = parseInt(value, 10);
+    return Math.max(0, Math.min(item.outstanding, isNaN(parsed) ? 0 : parsed));
+}
+
+// skipRender keeps the input usable while typing — re-rendering on every
+// keystroke would steal focus mid-number, so that row is patched in place.
+function setCheckinQty(idx, value, skipRender = false) {
+    checkinItems[idx].received = clampCheckinQty(idx, value);
+    if (skipRender) {
+        refreshCheckinRow(idx);
+    } else {
+        renderCheckinItems();
+    }
+    updateCheckinCount();
+}
+
+function refreshCheckinRow(idx) {
+    const item = checkinItems[idx];
+    const row = document.getElementById(`checkinRow-${idx}`);
+    if (!row) return;
+
+    const short = item.outstanding - item.received;
+    row.classList.toggle('short', short > 0);
+
+    const flag = row.querySelector('.checkin-item-flag');
+    if (flag) flag.textContent = short > 0 ? `⚠️ ${short} missing` : '✓ all received';
+
+    const steps = row.querySelectorAll('.checkin-step');
+    if (steps.length === 2) {
+        steps[0].disabled = item.received <= 0;
+        steps[1].disabled = item.received >= item.outstanding;
+    }
+}
+
+function stepCheckinQty(idx, delta) {
+    setCheckinQty(idx, checkinItems[idx].received + delta);
+}
+
+function updateCheckinCount() {
+    const outstanding = checkinItems.reduce((sum, i) => sum + i.outstanding, 0);
+    const received = checkinItems.reduce((sum, i) => sum + i.received, 0);
+    const missing = outstanding - received;
+
+    const countEl = document.getElementById('checkinCount');
+    if (countEl) {
+        countEl.textContent = missing > 0
+            ? `${received} / ${outstanding} units received — ${missing} missing`
+            : `${received} / ${outstanding} units received`;
+        countEl.classList.toggle('has-missing', missing > 0);
+    }
+
+    const confirmBtn = document.getElementById('confirmCheckinBtn');
+    if (confirmBtn) {
+        confirmBtn.textContent = missing > 0
+            ? `Check In & Flag ${missing} Missing ⚠️`
+            : 'Confirm Check In & Close DC ✓';
+        confirmBtn.classList.toggle('is-partial', missing > 0);
+    }
+}
+
+function selectAllCheckin() {
+    checkinItems.forEach(item => item.received = item.outstanding);
     renderCheckinItems();
     updateCheckinCount();
 }
 
-function updateCheckinCount() {
-    const checked = checkinItems.filter(i => i.checked).length;
-    const total = checkinItems.length;
-    document.getElementById('checkinCount').textContent = `${checked} / ${total} items returned`;
-}
-
-function selectAllCheckin() {
-    checkinItems.forEach(item => item.checked = true);
+function clearAllCheckin() {
+    checkinItems.forEach(item => item.received = 0);
     renderCheckinItems();
     updateCheckinCount();
 }
@@ -2721,32 +3107,68 @@ function closeCheckinModal() {
 
 async function confirmCheckin() {
     if (!currentCheckinDC) return;
-    
-    const checkedCount = checkinItems.filter(i => i.checked).length;
-    const totalCount = checkinItems.length;
+
+    const dcNumber = currentCheckinDC;
+    const outstanding = checkinItems.reduce((sum, i) => sum + i.outstanding, 0);
+    const received = checkinItems.reduce((sum, i) => sum + i.received, 0);
+    const missingUnits = outstanding - received;
     const notes = document.getElementById('checkinNotes').value;
-    
-    if (checkedCount < totalCount) {
-        const missing = totalCount - checkedCount;
-        if (!confirm(`⚠️ ${missing} item(s) not checked in. Continue anyway?`)) {
-            return;
-        }
+
+    if (missingUnits > 0) {
+        const shortLines = checkinItems.filter(i => i.received < i.outstanding);
+        const proceed = await showConfirmDialog({
+            title: `${missingUnits} unit${missingUnits === 1 ? '' : 's'} will be recorded as missing`,
+            message: `${shortLines.length} item${shortLines.length === 1 ? '' : 's'} did not come back in full:`,
+            items: shortLines.map(i => ({
+                label: i.itemName,
+                value: `${i.outstanding - i.received} of ${i.outstanding} not received`
+            })),
+            note: 'This DC stays open as "Items Missing" and the shortfall appears under Categories → Missing.',
+            confirmLabel: 'Record as Missing',
+            cancelLabel: 'Go Back',
+            tone: 'danger'
+        });
+        if (!proceed) return;
     }
-    
+
     showToast('Processing check in...', 'success');
-    
-    // Update DC status to Closed
-    await closeDC(currentCheckinDC);
-    
-    // Release only the returned quantity of each item back to available
-    const returnedItems = checkinItems.filter(i => i.checked).map(item => ({ itemId: item.itemId, qty: item.qty }));
-    if (returnedItems.length > 0) {
-        await supabaseAction('updateItemsStatus', { items: returnedItems, direction: 'checkin' });
+
+    try {
+        const returns = checkinItems
+            .filter(i => i.received > 0)
+            .map(i => ({ itemId: i.itemId, receivedQty: i.received }));
+
+        const result = await supabaseAction('checkinDC', {
+            dcNumber,
+            returns,
+            actualReturn: new Date().toISOString().split('T')[0],
+            notes
+        });
+
+        // Only the units that actually came back go from "in use" to available.
+        // Missing units stay in use so inventory doesn't invent stock.
+        if (returns.length > 0) {
+            await supabaseAction('updateItemsStatus', {
+                items: returns.map(r => ({ itemId: r.itemId, qty: r.receivedQty })),
+                direction: 'checkin'
+            });
+        }
+
+        closeCheckinModal();
+
+        if (result.missingUnits > 0) {
+            showToast(`⚠️ Checked in with ${result.missingUnits} unit(s) missing — DC kept open.`, 'warning');
+        } else {
+            showToast('✅ All items received! DC closed.', 'success');
+        }
+
+        loadData(); // Reload inventory to reflect status change
+        await loadDCData();
+        viewDCDetail(dcNumber);
+    } catch (error) {
+        console.error('Error checking in DC:', error);
+        showToast(error.message || 'Failed to check in items', 'error');
     }
-    
-    closeCheckinModal();
-    showToast('✅ Items checked in! DC closed.', 'success');
-    loadData(); // Reload inventory to reflect status change
 }
 
 // ==================== END CHECK OUT / CHECK IN ====================
@@ -2791,7 +3213,8 @@ switchView = function(viewName) {
         categories: 'Categories',
         deliveryChannels: 'Delivery Channels',
         createDC: 'Create Delivery Channel',
-        dcDetail: 'DC Details'
+        dcDetail: 'DC Details',
+        missingItems: 'Missing Items'
     };
     document.getElementById('pageTitle').textContent = titles[viewName] || 'Dashboard';
 
@@ -5786,24 +6209,45 @@ const INVENTORY_COLUMNS = {
     value: { label: 'Value', field: 'value', type: 'sort', numeric: true }
 };
 
-const FILTERABLE_KEYS = ['name', 'category', 'status', 'location'];
+const VENDOR_COLUMNS = {
+    name: { label: 'Vendor', field: 'name', type: 'values' },
+    pocName: { label: 'POC Name', field: 'pocName', type: 'values' },
+    contactNumber: { label: 'Contact', field: 'contactNumber', type: 'values' },
+    email: { label: 'Email', field: 'email', type: 'values' },
+    gstin: { label: 'GSTIN', field: 'gstin', type: 'values' },
+    city: { label: 'City', field: 'city', type: 'values' },
+    category: { label: 'Category', field: 'category', type: 'values' },
+    address: { label: 'Address', field: 'address', type: 'values' }
+};
+
+// Columns are per-scope (inventory/statDetail share one shape, vendor has its
+// own), so filterable keys are derived from each scope's own column map
+// rather than a single global list.
+function filterableKeysOf(columns) {
+    return Object.keys(columns).filter(key => columns[key].type !== 'sort');
+}
 
 // Sentinel for empty cells so they can be ticked like any other value. Plain
 // ASCII on purpose: a control character here ends up embedded in app.js and
 // makes the whole file read as binary to grep and other tooling.
 const BLANK_VALUE = '__BLANK__';
 
-function newFilterSet() {
-    return FILTERABLE_KEYS.reduce((acc, key) => {
+function newFilterSet(columns) {
+    return filterableKeysOf(columns).reduce((acc, key) => {
         acc[key] = new Set();
         return acc;
     }, {});
 }
 
-const columnFilterState = { inventory: newFilterSet(), statDetail: newFilterSet() };
+const columnFilterState = {
+    inventory: newFilterSet(INVENTORY_COLUMNS),
+    statDetail: newFilterSet(INVENTORY_COLUMNS),
+    vendor: newFilterSet(VENDOR_COLUMNS)
+};
 const columnSortState = {
     inventory: { key: null, dir: 'asc' },
-    statDetail: { key: null, dir: 'asc' }
+    statDetail: { key: null, dir: 'asc' },
+    vendor: { key: null, dir: 'asc' }
 };
 
 let openFilterColumn = null;
@@ -5836,8 +6280,14 @@ function statDetailBaseRows() {
         item.category.toLowerCase().includes(search));
 }
 
+// Rows before column filters: the existing vendor date-range picker.
+function vendorBaseRows() {
+    return vendorData.filter(vendor => matchesDateFilter('vendor', vendor.createdDate));
+}
+
 const TABLE_SCOPES = {
     inventory: {
+        columns: INVENTORY_COLUMNS,
         baseRows: inventoryBaseRows,
         apply: () => filterItems(),
         banner: 'columnFilterBanner',
@@ -5846,27 +6296,37 @@ const TABLE_SCOPES = {
         total: () => inventoryData.length
     },
     statDetail: {
+        columns: INVENTORY_COLUMNS,
         baseRows: statDetailBaseRows,
         apply: () => filterStatDetail(),
         banner: 'statDetailFilterBanner',
         bannerText: 'statDetailFilterBannerText',
         shown: () => statDetailFiltered.length,
         total: () => statDetailBaseData.length
+    },
+    vendor: {
+        columns: VENDOR_COLUMNS,
+        baseRows: vendorBaseRows,
+        apply: () => renderVendorTable(),
+        banner: 'vendorColumnFilterBanner',
+        bannerText: 'vendorColumnFilterBannerText',
+        shown: () => vendorFilteredRows.length,
+        total: () => vendorData.length
     }
 };
 
-function columnValueOf(item, key) {
-    const raw = item[INVENTORY_COLUMNS[key].field];
+function columnValueOf(scope, item, key) {
+    const raw = item[TABLE_SCOPES[scope].columns[key].field];
     const text = String(raw === null || raw === undefined ? '' : raw).trim();
     return text === '' ? BLANK_VALUE : text;
 }
 
 function matchesColumnFilters(scope, item, excludeKey) {
     const filters = columnFilterState[scope];
-    for (const key of FILTERABLE_KEYS) {
+    for (const key of filterableKeysOf(TABLE_SCOPES[scope].columns)) {
         if (key === excludeKey) continue;
         const selected = filters[key];
-        if (selected.size && !selected.has(columnValueOf(item, key))) return false;
+        if (selected.size && !selected.has(columnValueOf(scope, item, key))) return false;
     }
     return true;
 }
@@ -5876,7 +6336,7 @@ function columnFilterOptions(scope, key) {
     const counts = new Map();
     for (const item of TABLE_SCOPES[scope].baseRows()) {
         if (!matchesColumnFilters(scope, item, key)) continue;
-        const value = columnValueOf(item, key);
+        const value = columnValueOf(scope, item, key);
         counts.set(value, (counts.get(value) || 0) + 1);
     }
 
@@ -5899,7 +6359,7 @@ function sortColumnRows(scope, rows) {
     const { key, dir } = columnSortState[scope];
     if (!key) return rows;
 
-    const { numeric, field } = INVENTORY_COLUMNS[key];
+    const { numeric, field } = TABLE_SCOPES[scope].columns[key];
 
     return [...rows].sort((a, b) => {
         const result = numeric
@@ -5948,7 +6408,7 @@ function clearColumnFilter(scope, key) {
 }
 
 function clearAllColumnFilters(scope) {
-    FILTERABLE_KEYS.forEach(key => columnFilterState[scope][key].clear());
+    filterableKeysOf(TABLE_SCOPES[scope].columns).forEach(key => columnFilterState[scope][key].clear());
     columnSortState[scope] = { key: null, dir: 'asc' };
     closeColumnFilter();
     TABLE_SCOPES[scope].apply();
@@ -5996,7 +6456,7 @@ function renderColumnFilterPanel(scope, key, keepFocus) {
     const panel = document.getElementById('columnFilterPanel');
     if (!panel) return;
 
-    const column = INVENTORY_COLUMNS[key];
+    const column = TABLE_SCOPES[scope].columns[key];
     const sort = columnSortState[scope];
     const isSorted = sort.key === key;
     const ascLabel = column.numeric ? 'Low to high' : 'A to Z';
@@ -6073,8 +6533,9 @@ function renderColumnFilterPanel(scope, key, keepFocus) {
 function updateColumnFilterIndicators(scope) {
     const filters = columnFilterState[scope];
     const sort = columnSortState[scope];
+    const config = TABLE_SCOPES[scope];
 
-    Object.keys(INVENTORY_COLUMNS).forEach(key => {
+    Object.keys(config.columns).forEach(key => {
         const btn = document.querySelector('.col-filter-btn[data-scope="' + scope + '"][data-col="' + key + '"]');
         if (!btn) return;
         const filtered = filters[key] && filters[key].size > 0;
@@ -6084,8 +6545,7 @@ function updateColumnFilterIndicators(scope) {
         btn.innerHTML = filtered ? '&#9660;' : (sorted ? (sort.dir === 'asc' ? '&#8593;' : '&#8595;') : '&#9662;');
     });
 
-    const active = FILTERABLE_KEYS.some(k => filters[k].size > 0) || sort.key;
-    const config = TABLE_SCOPES[scope];
+    const active = filterableKeysOf(config.columns).some(k => filters[k].size > 0) || sort.key;
     const banner = document.getElementById(config.banner);
     if (banner) {
         banner.style.display = active ? 'flex' : 'none';

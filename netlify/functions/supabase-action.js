@@ -100,20 +100,92 @@ function withExecutorNote(notes, executorName) {
   return [visibleNotes, executorLine].filter(Boolean).join('\n');
 }
 
-function isMissingEventExecutorColumn(error) {
+// Matches PostgREST's complaint when a column in the payload isn't in the
+// table yet — i.e. the matching database-*-plan.sql hasn't been applied.
+function isMissingColumnError(error) {
   return /Event Executor|schema cache|column/i.test(String(error?.message || ''));
 }
 
-function dcItemRows(dcNumber, items = []) {
-  return items.map(item => ({
-    'DC Number': dcNumber,
-    'Item ID': item.itemId || '',
-    'Item Name': item.name || item.itemName || '',
-    Category: item.category || '',
-    Quantity: item.qty ?? item.quantity ?? 1,
-    'Return Condition': item.returnCondition || '',
-    'Return Notes': item.notes || item.returnNotes || ''
+function dcItemRows(dcNumber, items = [], { includeReturnedQty = true } = {}) {
+  return items.map(item => {
+    const row = {
+      'DC Number': dcNumber,
+      'Item ID': item.itemId || '',
+      'Item Name': item.name || item.itemName || '',
+      Category: item.category || '',
+      Quantity: item.qty ?? item.quantity ?? 1,
+      'Return Condition': item.returnCondition || '',
+      'Return Notes': item.notes || item.returnNotes || ''
+    };
+    // Edits rewrite the whole item list, so carry forward what already came
+    // back — otherwise editing a DC would resurrect items marked missing.
+    if (includeReturnedQty) row['Returned Qty'] = clampReturned(item.returnedQty, row.Quantity);
+    return row;
+  });
+}
+
+function isMissingReturnedQtyColumn(error) {
+  return /Returned Qty/i.test(String(error?.message || ''));
+}
+
+function clampReturned(returnedQty, quantity) {
+  const qty = parseInt(quantity, 10) || 0;
+  const returned = parseInt(returnedQty, 10) || 0;
+  return Math.max(0, Math.min(qty, returned));
+}
+
+// Replaces a DC's item lines while preserving each line's already-returned
+// quantity (matched by Item ID). Degrades to the pre-migration shape if the
+// "Returned Qty" column isn't there yet.
+async function replaceDCItems(dcNumber, items = []) {
+  const existingRows = await select('dc_items', { filters: { 'DC Number': filterEq(dcNumber) } });
+  const returnedByItemId = new Map(
+    (Array.isArray(existingRows) ? existingRows : []).map(row => [
+      String(row['Item ID'] || ''),
+      parseInt(row['Returned Qty'], 10) || 0
+    ])
+  );
+
+  await remove('dc_items', { 'DC Number': filterEq(dcNumber) });
+
+  const merged = items.map(item => ({
+    ...item,
+    returnedQty: item.returnedQty ?? returnedByItemId.get(String(item.itemId || '')) ?? 0
   }));
+
+  const rows = dcItemRows(dcNumber, merged);
+  if (rows.length === 0) return;
+
+  try {
+    await insert('dc_items', rows);
+  } catch (error) {
+    if (!isMissingReturnedQtyColumn(error)) throw error;
+    await insert('dc_items', dcItemRows(dcNumber, merged, { includeReturnedQty: false }));
+  }
+}
+
+// Missing = dispatched quantity that hasn't been checked back in yet.
+async function getDCShortfall(dcNumber) {
+  const rows = await select('dc_items', { filters: { 'DC Number': filterEq(dcNumber) } });
+  const lines = (Array.isArray(rows) ? rows : []).map(row => {
+    const quantity = parseInt(row.Quantity, 10) || 0;
+    const returned = clampReturned(row['Returned Qty'], quantity);
+    return {
+      itemId: row['Item ID'] || '',
+      itemName: row['Item Name'] || '',
+      category: row.Category || '',
+      quantity,
+      returned,
+      missing: Math.max(0, quantity - returned)
+    };
+  });
+
+  const missingLines = lines.filter(line => line.missing > 0);
+  return {
+    lines,
+    missingLines,
+    missingUnits: missingLines.reduce((sum, line) => sum + line.missing, 0)
+  };
 }
 
 async function resolveDCNumber(requestedDcNumber) {
@@ -181,8 +253,9 @@ async function resolvePRNumber(requestedPrNumber) {
   return `PR-${String(maxNumber + 1).padStart(3, '0')}`;
 }
 
-function vendorRow(vendor) {
+function vendorRow(vendor, { includePocName = true } = {}) {
   return {
+    ...(includePocName ? { 'POC Name': vendor.pocName || '' } : {}),
     'Vendor Name': vendor.name || vendor.vendorName || '',
     'Vendor Contact Number': vendor.contactNumber || vendor.vendorContactNumber || '',
     Email: vendor.email || '',
@@ -447,7 +520,14 @@ async function handleAction(action, data) {
     const row = vendorRow(data);
     if (!row['Vendor Name']) throw new Error('Missing vendor name');
     if (!row['Vendor Contact Number']) throw new Error('Missing vendor contact number');
-    await upsertById('vendors', 'Vendor Name', row);
+    try {
+      await upsertById('vendors', 'Vendor Name', row);
+    } catch (error) {
+      // "POC Name" is newer than the original vendors table; save the rest
+      // rather than failing outright if the plan hasn't been applied yet.
+      if (!isMissingColumnError(error)) throw error;
+      await upsertById('vendors', 'Vendor Name', vendorRow(data, { includePocName: false }));
+    }
     return { success: true, vendorName: row['Vendor Name'] };
   }
 
@@ -480,23 +560,19 @@ async function handleAction(action, data) {
     try {
       await upsertById('delivery_channels', 'DC Number', dcRow({ ...data, dcNumber }, existing));
     } catch (error) {
-      if (!isMissingEventExecutorColumn(error)) throw error;
+      if (!isMissingColumnError(error)) throw error;
       await upsertById(
         'delivery_channels',
         'DC Number',
         dcRow({ ...data, dcNumber, includeExecutorColumn: false, includeExecutorNote: true }, existing)
       );
     }
-    await remove('dc_items', { 'DC Number': filterEq(dcNumber) });
-    const items = dcItemRows(dcNumber, data.items);
-    if (items.length > 0) await insert('dc_items', items);
+    await replaceDCItems(dcNumber, data.items || []);
     return { success: true, dcNumber };
   }
 
   if (action === 'updateDCItems') {
-    await remove('dc_items', { 'DC Number': filterEq(data.dcNumber) });
-    const items = dcItemRows(data.dcNumber, data.items);
-    if (items.length > 0) await insert('dc_items', items);
+    await replaceDCItems(data.dcNumber, data.items || []);
     return { success: true };
   }
 
@@ -523,11 +599,90 @@ async function handleAction(action, data) {
   }
 
   if (action === 'closeDC') {
+    // A DC with units still out is not finished. Closing it would strand the
+    // missing stock in "In Use" forever with nothing pointing at it.
+    const shortfall = await getDCShortfall(data.dcNumber);
+    if (shortfall.missingUnits > 0 && data.force !== true) {
+      throw new Error(
+        `Cannot close ${data.dcNumber}: ${shortfall.missingUnits} unit(s) across ` +
+        `${shortfall.missingLines.length} item(s) have not been received back.`
+      );
+    }
+
     await updateById('delivery_channels', 'DC Number', data.dcNumber, {
       Status: 'Closed',
       'Actual Return': data.actualReturn || ''
     });
     return { success: true };
+  }
+
+  if (action === 'checkinDC') {
+    // returns: [{ itemId, receivedQty }] — units received in THIS check-in,
+    // added on top of whatever came back in earlier partial check-ins.
+    const dcNumber = data.dcNumber;
+    if (!dcNumber) throw new Error('Missing DC number');
+
+    const before = await getDCShortfall(dcNumber);
+    const receivedNow = new Map(
+      (Array.isArray(data.returns) ? data.returns : []).map(entry => [
+        String(entry.itemId || ''),
+        Math.max(0, parseInt(entry.receivedQty, 10) || 0)
+      ])
+    );
+
+    let columnAvailable = true;
+    const applied = [];
+
+    for (const line of before.lines) {
+      const received = Math.min(receivedNow.get(String(line.itemId)) || 0, line.missing);
+      if (received <= 0) continue;
+
+      applied.push({ itemId: line.itemId, qty: received });
+      if (!columnAvailable) continue;
+
+      try {
+        await update(
+          'dc_items',
+          { 'DC Number': filterEq(dcNumber), 'Item ID': filterEq(line.itemId) },
+          { 'Returned Qty': line.returned + received }
+        );
+      } catch (error) {
+        if (!isMissingReturnedQtyColumn(error)) throw error;
+        // Pre-migration DB: fall back to the old all-or-nothing behaviour
+        // rather than trapping the DC in a state it can never leave.
+        columnAvailable = false;
+      }
+    }
+
+    const after = columnAvailable
+      ? await getDCShortfall(dcNumber)
+      : { missingUnits: 0, missingLines: [], lines: before.lines };
+
+    const status = after.missingUnits > 0 ? 'Partially Returned' : 'Closed';
+    const updates = { Status: status };
+    if (status === 'Closed') updates['Actual Return'] = data.actualReturn || '';
+
+    if (data.notes) {
+      // Append rather than replace — Notes also carries the executor line.
+      const dcRows = await select('delivery_channels', { filters: { 'DC Number': filterEq(dcNumber) } });
+      const currentNotes = String((Array.isArray(dcRows) ? dcRows[0] : {})?.Notes || '').trim();
+      updates.Notes = [currentNotes, `[Check-in] ${data.notes}`].filter(Boolean).join('\n');
+    }
+
+    await updateById('delivery_channels', 'DC Number', dcNumber, updates);
+
+    return {
+      success: true,
+      status,
+      applied,
+      missingUnits: after.missingUnits,
+      missingLines: after.missingLines,
+      returnedQtyTracked: columnAvailable
+    };
+  }
+
+  if (action === 'getDCShortfall') {
+    return { success: true, ...(await getDCShortfall(data.dcNumber)) };
   }
 
   if (action === 'createPR') {
