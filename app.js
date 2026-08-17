@@ -155,6 +155,7 @@ let vendorFilteredRows = [];
 document.addEventListener('DOMContentLoaded', () => {
     console.log('App initialized');
     setupNavigation();
+    populateVendorSubCategories('');
     loadVendorData();
     loadData();
     
@@ -492,7 +493,8 @@ function mapRowsToVendors(rows) {
             city: row[5] || '',
             category: row[6] || '',
             pocName: row[7] || '',
-            createdDate: row[8] || ''
+            createdDate: row[8] || '',
+            subCategory: row[9] || ''
         }));
 }
 
@@ -519,10 +521,10 @@ async function loadVendorData() {
 function vendorExportRows() {
     return vendorData
         .filter(v => matchesDateFilter('vendor', v.createdDate))
-        .map(v => [v.name, v.pocName, v.contactNumber, v.email, v.gstin, v.city, v.category, v.address]);
+        .map(v => [v.name, v.pocName, v.contactNumber, v.email, v.gstin, v.city, v.category, v.subCategory, v.address]);
 }
 
-const VENDOR_EXPORT_HEADERS = ['Vendor Name', 'POC Name', 'Contact', 'Email', 'GSTIN', 'City', 'Category', 'Address'];
+const VENDOR_EXPORT_HEADERS = ['Vendor Name', 'POC Name', 'Contact', 'Email', 'GSTIN', 'City', 'Category', 'Sub-Category', 'Address'];
 
 function exportVendorsCSV() {
     downloadCSV(`cft-vendors-${todayStamp()}.csv`, VENDOR_EXPORT_HEADERS, vendorExportRows());
@@ -581,6 +583,104 @@ function getVendorByName(name) {
     return vendorData.find(vendor => vendor.name === name);
 }
 
+// The vendor category dropdown ends in a "Custom..." entry that reveals a free
+// text box, so vendors aren't limited to the preset list. VENDOR_CUSTOM_CATEGORY
+// is only ever a UI marker -- what gets saved is always the typed text.
+const VENDOR_CUSTOM_CATEGORY = '__custom__';
+
+function onVendorCategoryChange() {
+    const select = document.getElementById('vendorCategory');
+    const custom = document.getElementById('vendorCategoryCustom');
+    if (!select || !custom) return;
+
+    const isCustom = select.value === VENDOR_CUSTOM_CATEGORY;
+    custom.style.display = isCustom ? 'block' : 'none';
+    if (isCustom) {
+        custom.focus();
+    } else {
+        custom.value = '';
+    }
+
+    // The sub-category presets hang off the category, so a category change
+    // invalidates whatever was picked before.
+    populateVendorSubCategories(isCustom ? '' : select.value);
+}
+
+function getVendorCategoryValue() {
+    const select = document.getElementById('vendorCategory');
+    if (!select) return '';
+
+    if (select.value !== VENDOR_CUSTOM_CATEGORY) return select.value;
+    return document.getElementById('vendorCategoryCustom')?.value.trim() || '';
+}
+
+// A saved category that isn't in the preset list (a custom one, or the retired
+// "Rented Equipment") reopens in the custom box rather than being dropped.
+function setVendorCategoryValue(category = '') {
+    const select = document.getElementById('vendorCategory');
+    const custom = document.getElementById('vendorCategoryCustom');
+    if (!select || !custom) return;
+
+    const preset = Array.from(select.options)
+        .some(option => option.value === category && option.value !== VENDOR_CUSTOM_CATEGORY);
+
+    if (category && !preset) {
+        select.value = VENDOR_CUSTOM_CATEGORY;
+        custom.value = category;
+        custom.style.display = 'block';
+    } else {
+        select.value = category || '';
+        custom.value = '';
+        custom.style.display = 'none';
+    }
+}
+
+// Sub-category presets come from the same SUB_CATEGORIES map the Add Item form
+// uses; a custom (or preset-less) category simply leaves only the Custom entry.
+function populateVendorSubCategories(category = '', selected = '') {
+    const select = document.getElementById('vendorSubCategory');
+    const custom = document.getElementById('vendorSubCategoryCustom');
+    if (!select || !custom) return;
+
+    const subCats = SUB_CATEGORIES[category] || [];
+    const placeholder = category || selected ? 'Select Sub-Category' : 'Select Category First';
+    select.innerHTML = `<option value="">${placeholder}</option>` +
+        subCats.map(sub => `<option value="${escapeHtml(sub)}">${escapeHtml(sub)}</option>`).join('') +
+        `<option value="${VENDOR_CUSTOM_CATEGORY}">✏️ Custom...</option>`;
+
+    if (selected && !subCats.includes(selected)) {
+        select.value = VENDOR_CUSTOM_CATEGORY;
+        custom.value = selected;
+        custom.style.display = 'block';
+    } else {
+        select.value = selected || '';
+        custom.value = '';
+        custom.style.display = 'none';
+    }
+}
+
+function onVendorSubCategoryChange() {
+    const select = document.getElementById('vendorSubCategory');
+    const custom = document.getElementById('vendorSubCategoryCustom');
+    if (!select || !custom) return;
+
+    const isCustom = select.value === VENDOR_CUSTOM_CATEGORY;
+    custom.style.display = isCustom ? 'block' : 'none';
+    if (isCustom) {
+        custom.focus();
+    } else {
+        custom.value = '';
+    }
+}
+
+function getVendorSubCategoryValue() {
+    const select = document.getElementById('vendorSubCategory');
+    if (!select) return '';
+
+    if (select.value !== VENDOR_CUSTOM_CATEGORY) return select.value;
+    return document.getElementById('vendorSubCategoryCustom')?.value.trim() || '';
+}
+
 function updateVendorContactFromSelect(selectId, contactInputId) {
     const select = document.getElementById(selectId);
     const contactInput = document.getElementById(contactInputId);
@@ -595,12 +695,12 @@ function renderVendorTable(message = '') {
     if (!tbody) return;
 
     if (message) {
-        tbody.innerHTML = `<tr><td colspan="9">${escapeHtml(message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10">${escapeHtml(message)}</td></tr>`;
         return;
     }
 
     if (vendorData.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9">No vendors added yet</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10">No vendors added yet</td></tr>';
         return;
     }
 
@@ -608,7 +708,7 @@ function renderVendorTable(message = '') {
     updateDateFilterCount('vendor', dateFiltered.length, vendorData.length);
 
     if (dateFiltered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9">No vendors match the selected dates</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10">No vendors match the selected dates</td></tr>';
         vendorFilteredRows = [];
         updateColumnFilterIndicators('vendor');
         return;
@@ -622,7 +722,7 @@ function renderVendorTable(message = '') {
     updateColumnFilterIndicators('vendor');
 
     if (rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9">No vendors match the selected filters</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10">No vendors match the selected filters</td></tr>';
         return;
     }
 
@@ -637,6 +737,7 @@ function renderVendorTable(message = '') {
             <td><span class="vendor-code-cell">${escapeHtml(vendor.gstin || '-')}</span></td>
             <td>${escapeHtml(vendor.city || '-')}</td>
             <td>${escapeHtml(vendor.category || '-')}</td>
+            <td>${escapeHtml(vendor.subCategory || '-')}</td>
             <td><span class="vendor-address-cell">${escapeHtml(vendor.address || '-')}</span></td>
             <td>
                 <div class="vendor-row-actions">
@@ -688,7 +789,8 @@ function editVendor(index) {
     document.getElementById('vendorGstin').value = vendor.gstin || '';
     document.getElementById('vendorCity').value = vendor.city || '';
     document.getElementById('vendorAddress').value = vendor.address || '';
-    setVendorSelectValue('vendorCategory', vendor.category);
+    setVendorCategoryValue(vendor.category);
+    populateVendorSubCategories(vendor.category, vendor.subCategory);
 
     setVendorFormMode(vendor.name);
     document.querySelector('.vendor-form-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -696,6 +798,8 @@ function editVendor(index) {
 
 function cancelVendorEdit() {
     document.getElementById('vendorForm')?.reset();
+    setVendorCategoryValue('');
+    populateVendorSubCategories('');
     setVendorFormMode('');
 }
 
@@ -713,11 +817,24 @@ async function saveVendor(event) {
         address: document.getElementById('vendorAddress').value.trim(),
         gstin: document.getElementById('vendorGstin').value.trim().toUpperCase(),
         city: document.getElementById('vendorCity').value.trim(),
-        category: document.getElementById('vendorCategory').value
+        category: getVendorCategoryValue(),
+        subCategory: getVendorSubCategoryValue()
     };
 
     if (!vendor.name || !vendor.contactNumber) {
         showToast('Please enter vendor name and contact number', 'error');
+        return;
+    }
+
+    if (document.getElementById('vendorCategory')?.value === VENDOR_CUSTOM_CATEGORY && !vendor.category) {
+        showToast('Please type a custom category', 'error');
+        document.getElementById('vendorCategoryCustom')?.focus();
+        return;
+    }
+
+    if (document.getElementById('vendorSubCategory')?.value === VENDOR_CUSTOM_CATEGORY && !vendor.subCategory) {
+        showToast('Please type a custom sub-category', 'error');
+        document.getElementById('vendorSubCategoryCustom')?.focus();
         return;
     }
 
@@ -6296,6 +6413,7 @@ const VENDOR_COLUMNS = {
     gstin: { label: 'GSTIN', field: 'gstin', type: 'values' },
     city: { label: 'City', field: 'city', type: 'values' },
     category: { label: 'Category', field: 'category', type: 'values' },
+    subCategory: { label: 'Sub-Category', field: 'subCategory', type: 'values' },
     address: { label: 'Address', field: 'address', type: 'values' }
 };
 

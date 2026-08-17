@@ -253,9 +253,10 @@ async function resolvePRNumber(requestedPrNumber) {
   return `PR-${String(maxNumber + 1).padStart(3, '0')}`;
 }
 
-function vendorRow(vendor, { includePocName = true } = {}) {
+function vendorRow(vendor, { includePocName = true, includeSubCategory = true } = {}) {
   return {
     ...(includePocName ? { 'POC Name': vendor.pocName || '' } : {}),
+    ...(includeSubCategory ? { 'Sub-Category': vendor.subCategory || '' } : {}),
     'Vendor Name': vendor.name || vendor.vendorName || '',
     'Vendor Contact Number': vendor.contactNumber || vendor.vendorContactNumber || '',
     Email: vendor.email || '',
@@ -525,10 +526,11 @@ async function handleAction(action, data) {
       try {
         await upsertById('vendors', 'Vendor Name', row);
       } catch (error) {
-        // "POC Name" is newer than the original vendors table; save the rest
-        // rather than failing outright if the plan hasn't been applied yet.
+        // "POC Name" and "Sub-Category" are newer than the original vendors
+        // table; save the rest rather than failing outright if the plan hasn't
+        // been applied yet.
         if (!isMissingColumnError(error)) throw error;
-        await upsertById('vendors', 'Vendor Name', vendorRow(data, { includePocName: false }));
+        await upsertById('vendors', 'Vendor Name', vendorRow(data, { includePocName: false, includeSubCategory: false }));
       }
     };
 

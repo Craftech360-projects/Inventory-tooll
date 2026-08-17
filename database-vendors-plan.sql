@@ -36,6 +36,15 @@ create index if not exists vendors_category_idx
 alter table public.vendors
   add column if not exists "POC Name" text;
 
+-- Run this block once to add the Sub-Category the form now has. Category and
+-- Sub-Category are free text (the form offers presets plus a Custom option),
+-- so no check constraint or enum here on purpose.
+alter table public.vendors
+  add column if not exists "Sub-Category" text;
+
+create index if not exists vendors_sub_category_idx
+  on public.vendors ("Sub-Category");
+
 -- Current app tables continue storing the selected vendor name/contact in
 -- items and purchase_requests. For stricter reporting later, add a vendor key
 -- column to those tables and backfill it from the selected vendor name:

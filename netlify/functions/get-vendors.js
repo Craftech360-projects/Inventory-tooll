@@ -9,7 +9,8 @@ const HEADERS = [
   'City',
   'Category',
   'POC Name',
-  'Created Date'
+  'Created Date',
+  'Sub-Category'
 ];
 
 exports.handler = async () => {
