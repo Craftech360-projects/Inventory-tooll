@@ -520,15 +520,30 @@ async function handleAction(action, data) {
     const row = vendorRow(data);
     if (!row['Vendor Name']) throw new Error('Missing vendor name');
     if (!row['Vendor Contact Number']) throw new Error('Missing vendor contact number');
-    try {
-      await upsertById('vendors', 'Vendor Name', row);
-    } catch (error) {
-      // "POC Name" is newer than the original vendors table; save the rest
-      // rather than failing outright if the plan hasn't been applied yet.
-      if (!isMissingColumnError(error)) throw error;
-      await upsertById('vendors', 'Vendor Name', vendorRow(data, { includePocName: false }));
+
+    const saveRow = async () => {
+      try {
+        await upsertById('vendors', 'Vendor Name', row);
+      } catch (error) {
+        // "POC Name" is newer than the original vendors table; save the rest
+        // rather than failing outright if the plan hasn't been applied yet.
+        if (!isMissingColumnError(error)) throw error;
+        await upsertById('vendors', 'Vendor Name', vendorRow(data, { includePocName: false }));
+      }
+    };
+
+    // Vendor Name is the primary key, so an edit that changes it can't be an
+    // UPDATE in place: write the row under the new name, then drop the old one.
+    // Write first, so a failure here leaves the original row untouched.
+    const originalName = data.originalName || '';
+    const renamed = originalName && originalName !== row['Vendor Name'];
+
+    await saveRow();
+    if (renamed) {
+      await remove('vendors', { 'Vendor Name': filterEq(originalName) });
     }
-    return { success: true, vendorName: row['Vendor Name'] };
+
+    return { success: true, vendorName: row['Vendor Name'], renamedFrom: renamed ? originalName : undefined };
   }
 
   if (action === 'deleteVendor') {

@@ -639,15 +639,71 @@ function renderVendorTable(message = '') {
             <td>${escapeHtml(vendor.category || '-')}</td>
             <td><span class="vendor-address-cell">${escapeHtml(vendor.address || '-')}</span></td>
             <td>
-                <button type="button" class="action-btn vendor-delete-btn" onclick="deleteVendor(${index})">Delete</button>
+                <div class="vendor-row-actions">
+                    <button type="button" class="action-btn vendor-edit-btn" onclick="editVendor(${index})">Edit</button>
+                    <button type="button" class="action-btn vendor-delete-btn" onclick="deleteVendor(${index})">Delete</button>
+                </div>
             </td>
         </tr>
     `;
     }).join('');
 }
 
+// The form doubles as the edit form. dataset.editingVendor holds the name the
+// row had when Edit was clicked, which is also its primary key in Supabase --
+// the save needs it to tell an edit from a new vendor, and to find the old row
+// again if the name itself was changed.
+function setVendorFormMode(originalName = '') {
+    const form = document.getElementById('vendorForm');
+    if (!form) return;
+
+    const editing = !!originalName;
+    if (editing) {
+        form.dataset.editingVendor = originalName;
+    } else {
+        delete form.dataset.editingVendor;
+    }
+
+    const title = document.getElementById('vendorFormTitle');
+    if (title) title.textContent = editing ? 'Edit Vendor' : 'Vendor Details';
+
+    const submit = document.getElementById('vendorSubmitBtn');
+    if (submit) submit.textContent = editing ? 'Update Vendor' : 'Save Vendor';
+
+    const hint = document.getElementById('vendorEditHint');
+    if (hint) {
+        hint.style.display = editing ? 'inline' : 'none';
+        hint.textContent = editing ? 'Editing "' + originalName + '" — Clear to cancel' : '';
+    }
+}
+
+function editVendor(index) {
+    const vendor = vendorData[index];
+    if (!vendor) return;
+
+    document.getElementById('vendorName').value = vendor.name || '';
+    document.getElementById('vendorPocName').value = vendor.pocName || '';
+    document.getElementById('vendorContactNumber').value = vendor.contactNumber || '';
+    document.getElementById('vendorEmail').value = vendor.email || '';
+    document.getElementById('vendorGstin').value = vendor.gstin || '';
+    document.getElementById('vendorCity').value = vendor.city || '';
+    document.getElementById('vendorAddress').value = vendor.address || '';
+    setVendorSelectValue('vendorCategory', vendor.category);
+
+    setVendorFormMode(vendor.name);
+    document.querySelector('.vendor-form-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function cancelVendorEdit() {
+    document.getElementById('vendorForm')?.reset();
+    setVendorFormMode('');
+}
+
 async function saveVendor(event) {
     event.preventDefault();
+
+    const form = document.getElementById('vendorForm');
+    const originalName = form.dataset.editingVendor || '';
 
     const vendor = {
         name: document.getElementById('vendorName').value.trim(),
@@ -657,8 +713,7 @@ async function saveVendor(event) {
         address: document.getElementById('vendorAddress').value.trim(),
         gstin: document.getElementById('vendorGstin').value.trim().toUpperCase(),
         city: document.getElementById('vendorCity').value.trim(),
-        category: document.getElementById('vendorCategory').value,
-        createdDate: new Date().toISOString().split('T')[0]
+        category: document.getElementById('vendorCategory').value
     };
 
     if (!vendor.name || !vendor.contactNumber) {
@@ -666,12 +721,32 @@ async function saveVendor(event) {
         return;
     }
 
+    const existing = originalName ? getVendorByName(originalName) : null;
+    // Keep the original created date on edit; only a new vendor gets today's.
+    vendor.createdDate = existing?.createdDate || new Date().toISOString().split('T')[0];
+
+    const renamed = !!originalName && vendor.name !== originalName;
+
+    // Vendor Name is the primary key, so a rename that lands on another vendor
+    // would overwrite them. Block it rather than silently merging the two.
+    const collides = vendorData.some(v => v.name === vendor.name && v.name !== originalName);
+    if (collides) {
+        showToast(`A vendor named "${vendor.name}" already exists`, 'error');
+        return;
+    }
+
+    // Items and purchase requests store the vendor name as plain text, so a
+    // rename leaves those records pointing at the old name.
+    if (renamed && !confirm(`Rename "${originalName}" to "${vendor.name}"?\n\nExisting inventory and PR records will keep the old vendor name.`)) {
+        return;
+    }
+
     try {
-        showToast('Saving vendor...', 'success');
-        await supabaseAction('upsertVendor', vendor);
-        document.getElementById('vendorForm').reset();
+        showToast(originalName ? 'Updating vendor...' : 'Saving vendor...', 'success');
+        await supabaseAction('upsertVendor', originalName ? { ...vendor, originalName } : vendor);
+        cancelVendorEdit();
         await loadVendorData();
-        showToast('Vendor saved successfully!', 'success');
+        showToast(originalName ? 'Vendor updated successfully!' : 'Vendor saved successfully!', 'success');
     } catch (error) {
         console.error('Error saving vendor:', error);
         showToast('Failed to save vendor: ' + error.message, 'error');
@@ -688,6 +763,10 @@ async function deleteVendor(index) {
     try {
         showToast('Deleting vendor...', 'success');
         await supabaseAction('deleteVendor', { name: vendor.name });
+        // Don't leave the form editing a row that no longer exists.
+        if (document.getElementById('vendorForm')?.dataset.editingVendor === vendor.name) {
+            cancelVendorEdit();
+        }
         await loadVendorData();
         showToast('Vendor deleted successfully!', 'success');
     } catch (error) {

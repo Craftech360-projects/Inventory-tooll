@@ -361,7 +361,7 @@
             <section id="vendorsView" class="view">
                 <div class="vendor-layout">
                     <div class="card vendor-form-card">
-                        <h3>Vendor Details</h3>
+                        <h3 id="vendorFormTitle">Vendor Details</h3>
                         <form id="vendorForm" onsubmit="saveVendor(event)">
                             <div class="form-grid">
                                 <div class="form-group">
@@ -405,8 +405,9 @@
                                 </div>
                             </div>
                             <div class="form-actions">
-                                <button type="submit" class="btn-primary">Save Vendor</button>
-                                <button type="reset" class="btn-secondary">Clear</button>
+                                <button type="submit" class="btn-primary" id="vendorSubmitBtn">Save Vendor</button>
+                                <button type="button" class="btn-secondary" onclick="cancelVendorEdit()">Clear</button>
+                                <span class="vendor-edit-hint" id="vendorEditHint" style="display:none;"></span>
                             </div>
                         </form>
                     </div>
