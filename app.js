@@ -860,10 +860,22 @@ async function saveVendor(event) {
 
     try {
         showToast(originalName ? 'Updating vendor...' : 'Saving vendor...', 'success');
-        await supabaseAction('upsertVendor', originalName ? { ...vendor, originalName } : vendor);
+        const result = await supabaseAction('upsertVendor', originalName ? { ...vendor, originalName } : vendor);
         cancelVendorEdit();
         await loadVendorData();
-        showToast(originalName ? 'Vendor updated successfully!' : 'Vendor saved successfully!', 'success');
+
+        // Columns the database doesn't have yet are dropped so the rest of the
+        // vendor still saves -- say so, instead of reporting a clean success
+        // and letting those fields quietly revert on the next reload.
+        if (result.skippedColumns?.length) {
+            showToast(
+                `Vendor saved, but ${result.skippedColumns.join(' and ')} could not be stored. ` +
+                'Run the vendors block in database-vendors-plan.sql, then save again.',
+                'error'
+            );
+        } else {
+            showToast(originalName ? 'Vendor updated successfully!' : 'Vendor saved successfully!', 'success');
+        }
     } catch (error) {
         console.error('Error saving vendor:', error);
         showToast('Failed to save vendor: ' + error.message, 'error');

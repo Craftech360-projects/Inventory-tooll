@@ -253,10 +253,24 @@ async function resolvePRNumber(requestedPrNumber) {
   return `PR-${String(maxNumber + 1).padStart(3, '0')}`;
 }
 
-function vendorRow(vendor, { includePocName = true, includeSubCategory = true } = {}) {
+// Columns added to the vendors table after it first shipped. A deployment that
+// hasn't run the matching block in database-vendors-plan.sql is missing them,
+// and Supabase rejects the whole write when a payload names one.
+const OPTIONAL_VENDOR_COLUMNS = ['POC Name', 'Sub-Category'];
+
+// PostgREST reports the offending column two ways depending on the failure:
+// "Could not find the 'X' column of 'vendors' in the schema cache" (PGRST204)
+// and Postgres' own 'column "X" of relation "vendors" does not exist' (42703).
+function missingColumnName(error) {
+  const message = String(error?.message || '');
+  const match = /'([^']+)' column/.exec(message) || /column "([^"]+)"/.exec(message);
+  return match ? match[1] : '';
+}
+
+function vendorRow(vendor) {
   return {
-    ...(includePocName ? { 'POC Name': vendor.pocName || '' } : {}),
-    ...(includeSubCategory ? { 'Sub-Category': vendor.subCategory || '' } : {}),
+    'POC Name': vendor.pocName || '',
+    'Sub-Category': vendor.subCategory || '',
     'Vendor Name': vendor.name || vendor.vendorName || '',
     'Vendor Contact Number': vendor.contactNumber || vendor.vendorContactNumber || '',
     Email: vendor.email || '',
@@ -522,15 +536,27 @@ async function handleAction(action, data) {
     if (!row['Vendor Name']) throw new Error('Missing vendor name');
     if (!row['Vendor Contact Number']) throw new Error('Missing vendor contact number');
 
+    // Retry without whichever optional column Supabase names, one at a time, so
+    // a single missing column can't silently swallow the edits to the others.
+    // Whatever gets dropped is reported back rather than passed off as saved.
     const saveRow = async () => {
-      try {
-        await upsertById('vendors', 'Vendor Name', row);
-      } catch (error) {
-        // "POC Name" and "Sub-Category" are newer than the original vendors
-        // table; save the rest rather than failing outright if the plan hasn't
-        // been applied yet.
-        if (!isMissingColumnError(error)) throw error;
-        await upsertById('vendors', 'Vendor Name', vendorRow(data, { includePocName: false, includeSubCategory: false }));
+      const attempt = { ...row };
+      const skippedColumns = [];
+
+      for (;;) {
+        try {
+          await upsertById('vendors', 'Vendor Name', attempt);
+          return skippedColumns;
+        } catch (error) {
+          const column = missingColumnName(error);
+          const droppable = isMissingColumnError(error)
+            && OPTIONAL_VENDOR_COLUMNS.includes(column)
+            && column in attempt;
+          if (!droppable) throw error;
+
+          delete attempt[column];
+          skippedColumns.push(column);
+        }
       }
     };
 
@@ -540,12 +566,17 @@ async function handleAction(action, data) {
     const originalName = data.originalName || '';
     const renamed = originalName && originalName !== row['Vendor Name'];
 
-    await saveRow();
+    const skippedColumns = await saveRow();
     if (renamed) {
       await remove('vendors', { 'Vendor Name': filterEq(originalName) });
     }
 
-    return { success: true, vendorName: row['Vendor Name'], renamedFrom: renamed ? originalName : undefined };
+    return {
+      success: true,
+      vendorName: row['Vendor Name'],
+      renamedFrom: renamed ? originalName : undefined,
+      skippedColumns: skippedColumns.length ? skippedColumns : undefined
+    };
   }
 
   if (action === 'deleteVendor') {
