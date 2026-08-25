@@ -440,6 +440,11 @@ function mapRowsToInventoryItems(rows) {
         // Without this every item reads as fully available, which makes the
         // Available/In Use drill-downs show the entire inventory.
         if (inUseQty === 0 && status === 'In Use') inUseQty = quantity;
+        // The mirror image: a row marked "Available" with units still counted as
+        // out is stale bookkeeping, not a real reservation. Trusting the count
+        // there would leave availableQty at 0 and hide the item from every
+        // picker that asks for available stock, while the list says Available.
+        if (status === 'Available') inUseQty = 0;
 
         items.push({
             rowIndex: i + 1,
@@ -569,7 +574,10 @@ function populatePurchaseRequestVendorOptions() {
         .join('');
 }
 
-function setVendorSelectValue(selectId, value) {
+// Assigning a value a <select> has no <option> for silently leaves it on "",
+// and the next save writes that empty value back. Carry the stored value in as
+// an option instead, so loading a record can never quietly rewrite it.
+function setSelectValue(selectId, value) {
     const select = document.getElementById(selectId);
     if (!select) return;
 
@@ -1395,14 +1403,14 @@ function editItem(rowIndex) {
     document.getElementById('editRowIndex').value = rowIndex;
     document.getElementById('editItemId').value = item.itemId;
     document.getElementById('editItemName').value = item.name;
-    document.getElementById('editItemCategory').value = item.category;
-    
+    setSelectValue('editItemCategory', item.category);
+
     // Populate sub-category dropdown first, then set value
     updateSubCategoryDropdown('editItemSubCategory', item.category);
-    document.getElementById('editItemSubCategory').value = item.subCategory;
-    
+    setSelectValue('editItemSubCategory', item.subCategory);
+
     document.getElementById('editItemQuantity').value = item.quantity;
-    document.getElementById('editItemStatus').value = item.status;
+    setSelectValue('editItemStatus', item.status);
     document.getElementById('editItemLocation').value = item.location;
     document.getElementById('editItemValue').value = item.value;
     document.getElementById('editItemNotes').value = item.notes;
@@ -1410,7 +1418,7 @@ function editItem(rowIndex) {
     // Rental fields
     document.getElementById('editItemReturnDate').value = item.returnDate || '';
     document.getElementById('editItemEventProject').value = item.eventProject || '';
-    setVendorSelectValue('editItemVendorName', item.vendorName || '');
+    setSelectValue('editItemVendorName', item.vendorName || '');
     document.getElementById('editItemVendorContact').value = item.vendorContact || '';
     document.getElementById('editItemRentalCost').value = item.rentalCost || 0;
     document.getElementById('editItemDeposit').value = item.deposit || 0;

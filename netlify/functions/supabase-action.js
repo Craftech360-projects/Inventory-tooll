@@ -439,6 +439,35 @@ async function adjustItemInUseQty(itemId, delta) {
   await updateById('items', 'Item ID', itemId, updates);
 }
 
+// An edit form posts Status and Quantity but knows nothing about "In Use Qty",
+// so writing the row on its own leaves that count behind. A row left claiming
+// units are out while its Status says Available reads as availableQty 0, which
+// hides the item from every picker that asks for available stock. Derive the
+// count that matches the Status being saved instead. Returns null when the
+// column isn't there (plan not applied) or the item can't be read.
+async function reconcileInUseQty(itemId, row) {
+  let existing = 0;
+  try {
+    const rows = await select('items', { filters: { 'Item ID': filterEq(itemId) } });
+    const item = Array.isArray(rows) ? rows[0] : null;
+    if (!item || !('In Use Qty' in item)) return null;
+    existing = parseInt(item['In Use Qty'], 10) || 0;
+  } catch (error) {
+    if (isMissingColumnError(error)) return null;
+    throw error;
+  }
+
+  const quantity = parseInt(row.Quantity, 10) || 0;
+  const status = row.Status || 'Available';
+  const clamped = Math.max(0, Math.min(quantity, existing));
+
+  if (status === 'Available') return 0;
+  // "In Use" means the whole item is out, but keep a real partial count if one
+  // is already recorded rather than over-reserving the untracked remainder.
+  if (status === 'In Use') return clamped > 0 ? clamped : quantity;
+  return clamped;
+}
+
 async function generateResultItemId(category) {
   const prefix = CATEGORY_PREFIXES[category] || 'ITM';
   const rows = await select('items', { filters: { Category: filterEq(category) } });
@@ -523,7 +552,10 @@ async function handleAction(action, data) {
   }
 
   if (action === 'update') {
-    await updateById('items', 'Item ID', data.itemId, inventoryRow(data));
+    const row = inventoryRow(data);
+    const inUseQty = await reconcileInUseQty(data.itemId, row);
+    if (inUseQty !== null) row['In Use Qty'] = inUseQty;
+    await updateById('items', 'Item ID', data.itemId, row);
     return { success: true, itemId: data.itemId };
   }
 
