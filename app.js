@@ -5318,8 +5318,13 @@ let employeesData = [];
 let employeeAssetsData = [];
 let selectedAssignAssetItem = null;
 let selectedAssignEmployee = null;
+// Why the list is empty, when it is empty for a reason other than "no matches".
+// Without this a failed request looks exactly like a table with no employees.
+let employeeLoadError = '';
 
 async function loadEmployeesData() {
+    employeeLoadError = '';
+
     try {
         const response = await fetch(CONFIG.EMPLOYEES_URL + '?_=' + Date.now(), { cache: 'no-store' });
         const data = await response.json();
@@ -5329,12 +5334,20 @@ async function loadEmployeesData() {
 
         employeesData = Array.isArray(data.employees) ? data.employees : [];
         employeeAssetsData = Array.isArray(data.assets) ? data.assets : [];
-        
+
+        if (employeesData.length === 0 && data.totalRows > 0) {
+            const columns = Array.isArray(data.unmappedColumns) ? data.unmappedColumns.join(', ') : '';
+            employeeLoadError = `The employees table has ${data.totalRows} row(s), but none could be read. ` +
+                (columns ? `Its columns are: ${columns}.` : '');
+        }
+
         updateEmployeeStats();
     } catch (error) {
         console.error('Error loading employees data:', error);
+        employeeLoadError = error.message;
         employeesData = [];
         employeeAssetsData = [];
+        updateEmployeeStats();
     }
 }
 
@@ -5467,7 +5480,16 @@ function renderEmployees() {
     updateDateFilterCount('employee', filtered.length, employeesData.length);
 
     if (filtered.length === 0) {
-        container.innerHTML = `
+        // A load failure and a genuinely empty table look identical on screen
+        // unless the reason is spelled out, so show it when there is one.
+        container.innerHTML = employeeLoadError
+            ? `
+            <div class="empty-state">
+                <h3>Employees Could Not Be Loaded</h3>
+                <p>${escapeHtml(employeeLoadError)}</p>
+            </div>
+        `
+            : `
             <div class="empty-state">
                 <h3>No Employees Found</h3>
                 <p>No matching employees were found in the employees table.</p>
