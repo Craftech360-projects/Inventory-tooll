@@ -111,6 +111,40 @@ async function selectAllEmployees() {
   return rows;
 }
 
+async function selectAllAssignments() {
+  const pageSize = 1000;
+  const rows = [];
+  for (let from = 0; ; from += pageSize) {
+    const page = await select('employee_assets', { range: { from, to: from + pageSize - 1 } });
+    const pageRows = Array.isArray(page) ? page : [];
+    rows.push(...pageRows);
+    if (pageRows.length < pageSize) break;
+  }
+  return rows;
+}
+
+// Assignments are written to employee_assets (the HR-owned employees table
+// rejects our writes). Assignments still sitting in the old per-employee JSON
+// column are merged in by id, so nothing disappears if the one-time copy in
+// database-employee-assets-plan.sql hasn't been run yet. A row in the new
+// table wins over its legacy copy, since only the new table gets updated.
+async function mergeAssignments(employees) {
+  let tableRows = [];
+  try {
+    tableRows = await selectAllAssignments();
+  } catch (error) {
+    console.error('employee_assets unavailable, using legacy assignments only:', error.message);
+  }
+
+  const byEmployee = new Map(employees.map(employee => [employee.empId, employee]));
+  for (const row of tableRows) {
+    const employee = byEmployee.get(String(row.employee_id ?? ''));
+    if (!employee) continue;
+    const asset = normalizeAssets({ asset_assignments: [row] }, employee.empId)[0];
+    employee.assets = [...employee.assets.filter(existing => existing.id !== asset.id), asset];
+  }
+}
+
 exports.handler = async () => {
   try {
     const rows = await selectAllEmployees();
@@ -118,6 +152,7 @@ exports.handler = async () => {
       .map(normalizeEmployee)
       .filter(isUsableEmployee)
       .sort((a, b) => String(a.name || a.empId).localeCompare(String(b.name || b.empId)));
+    await mergeAssignments(employees);
     const assets = employees.flatMap(employee => employee.assets);
 
     // Rows that all got discarded means the column names didn't line up. Say

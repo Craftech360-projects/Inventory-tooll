@@ -299,10 +299,6 @@ function dailyLogRow(data) {
   };
 }
 
-function normalizeEmployeeAssets(employee) {
-  return Array.isArray(employee?.asset_assignments) ? employee.asset_assignments : [];
-}
-
 async function getEmployeeByEmployeeId(employeeId) {
   const rows = await select('employees', { filters: { employee_id: filterEq(employeeId) } });
   return Array.isArray(rows) ? rows[0] : null;
@@ -828,53 +824,42 @@ async function handleAction(action, data) {
     const employee = await getEmployeeByEmployeeId(data.empId);
     if (!employee) throw new Error('Employee not found');
 
-    const assets = normalizeEmployeeAssets(employee);
+    // Assignments live in employee_assets, not on the employees row: that
+    // table is shared with HR and its trigger rejects non-HR column changes.
     const assignment = {
       id: data.id || `EA-${Date.now()}`,
-      itemId: data.itemId || '',
-      itemName: data.itemName || '',
-      serialNo: data.serialNo || '',
-      assignedDate: data.assignedDate || '',
-      returnedDate: '',
+      employee_id: data.empId,
+      item_id: data.itemId || '',
+      item_name: data.itemName || '',
+      serial_no: data.serialNo || '',
+      assigned_date: nullableDate(data.assignedDate),
+      returned_date: null,
       status: 'Active',
       notes: data.notes || ''
     };
 
-    await update('employees', { employee_id: filterEq(data.empId) }, {
-      asset_assignments: [...assets, assignment]
-    });
+    await insert('employee_assets', assignment);
 
-    if (assignment.itemId) {
-      await adjustItemInUseQty(assignment.itemId, 1);
+    if (assignment.item_id) {
+      await adjustItemInUseQty(assignment.item_id, 1);
     }
 
     return { success: true, id: assignment.id };
   }
 
   if (action === 'returnAsset') {
-    const employees = await select('employees');
-    const employee = (Array.isArray(employees) ? employees : []).find(row =>
-      normalizeEmployeeAssets(row).some(asset => asset.id === data.id)
-    );
-    if (!employee) throw new Error('Asset assignment not found');
+    const rows = await select('employee_assets', { filters: { id: filterEq(data.id) } });
+    const assignment = Array.isArray(rows) ? rows[0] : null;
+    if (!assignment) throw new Error('Asset assignment not found');
+    if (assignment.status === 'Returned') return { success: true };
 
-    let returnedItemId = '';
-    const assets = normalizeEmployeeAssets(employee).map(asset => {
-      if (asset.id !== data.id) return asset;
-      returnedItemId = asset.itemId || '';
-      return {
-        ...asset,
-        returnedDate: data.returnedDate || new Date().toISOString().slice(0, 10),
-        status: 'Returned'
-      };
+    await update('employee_assets', { id: filterEq(data.id) }, {
+      returned_date: data.returnedDate || new Date().toISOString().slice(0, 10),
+      status: 'Returned'
     });
 
-    await update('employees', { employee_id: filterEq(employee.employee_id) }, {
-      asset_assignments: assets
-    });
-
-    if (returnedItemId) {
-      await adjustItemInUseQty(returnedItemId, -1);
+    if (assignment.item_id) {
+      await adjustItemInUseQty(assignment.item_id, -1);
     }
 
     return { success: true };
