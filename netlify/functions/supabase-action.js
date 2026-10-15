@@ -6,6 +6,7 @@ const {
   remove,
   jsonResponse
 } = require('./supabase-client');
+const { getInventoryEmployee, employeeAction } = require('./lib/employee-store');
 
 const CATEGORY_PREFIXES = {
   'Event Equipment': 'EV',
@@ -297,11 +298,6 @@ function dailyLogRow(data) {
     'Return Date': data.returnDate || '',
     Notes: data.notes || ''
   };
-}
-
-async function getEmployeeByEmployeeId(employeeId) {
-  const rows = await select('employees', { filters: { employee_id: filterEq(employeeId) } });
-  return Array.isArray(rows) ? rows[0] : null;
 }
 
 async function findInventoryRowsByItemId(itemId) {
@@ -821,11 +817,11 @@ async function handleAction(action, data) {
   }
 
   if (action === 'assignAsset') {
-    const employee = await getEmployeeByEmployeeId(data.empId);
+    const employee = await getInventoryEmployee(data.empId);
     if (!employee) throw new Error('Employee not found');
+    if (employee.archived_at) throw new Error('Restore this employee before assigning assets');
 
-    // Assignments live in employee_assets, not on the employees row: that
-    // table is shared with HR and its trigger rejects non-HR column changes.
+    // Assignments stay linked by the immutable inventory employee ID.
     const assignment = {
       id: data.id || `EA-${Date.now()}`,
       employee_id: data.empId,
@@ -929,6 +925,11 @@ exports.handler = async (event) => {
     const body = event.body ? JSON.parse(event.body) : {};
     const action = event.queryStringParameters?.action || body.action;
     if (!action) throw new Error('Missing action');
+
+    if (['createEmployee', 'updateEmployee', 'archiveEmployee', 'restoreEmployee'].includes(action)) {
+      if (event.httpMethod !== 'POST') return jsonResponse({ success: false, error: 'Use POST for employee changes' }, 405);
+      return jsonResponse(await employeeAction(action, body));
+    }
 
     const result = await handleAction(action, body);
     return jsonResponse(result);

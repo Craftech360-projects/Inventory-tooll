@@ -854,6 +854,11 @@
                             <input type="text" id="employeeSearch" placeholder="Search employees..." onkeyup="filterEmployees()">
                         </div>
                         <div class="employee-assets-actions">
+                            <select id="employeeStatusFilter" class="employee-asset-filter" onchange="filterEmployees()" aria-label="Employee status">
+                                <option value="active">Active employees</option>
+                                <option value="archived">Archived employees</option>
+                                <option value="all">All statuses</option>
+                            </select>
                             <select id="employeeAssetFilter" class="employee-asset-filter" onchange="filterEmployees()" title="Filter by asset assignment">
                                 <option value="all">All employees</option>
                                 <option value="with">With assets</option>
@@ -870,13 +875,15 @@
                                     <button class="export-dropdown-item" onclick="exportEmployeeAssetsPDF()">&#x1F4D5; Export PDF</button>
                                 </div>
                             </div>
-                            <button class="btn-primary" onclick="openAssignAsset()">+ Assign Asset</button>
+                            <button class="btn-secondary" id="addEmployeeButton" onclick="openEmployeeForm()">+ Add Employee</button>
+                            <button class="btn-primary" id="assignAssetButton" onclick="openAssignAsset()">+ Assign Asset</button>
                         </div>
                     </div>
 
+                    <p id="employeeMigrationNotice" class="employee-notice" role="status" hidden></p>
                     <div class="employee-stats">
                         <div class="employee-stat-card">
-                            <div class="employee-stat-label">Total Employees</div>
+                            <div class="employee-stat-label">Active Employees</div>
                             <div class="employee-stat-value" id="totalEmployees">0</div>
                         </div>
                         <div class="employee-stat-card">
@@ -900,6 +907,30 @@
                 <button class="btn-secondary employee-detail-back" onclick="switchView('employeeAssets')">&#x2190; Back to Employees</button>
                 <div id="employeeDetailContent">
                     <!-- Employee details will be loaded here -->
+                </div>
+            </section>
+
+            <section id="employeeFormView" class="view">
+                <div class="card form-card">
+                    <h2 id="employeeFormTitle">Add Employee</h2>
+                    <form id="employeeForm" onsubmit="saveEmployee(event)">
+                        <div class="form-grid">
+                            <div class="form-group"><label for="employeeFormId">Employee ID *</label><input id="employeeFormId" required maxlength="200"><small>Employee IDs stay fixed to preserve asset history.</small></div>
+                            <div class="form-group"><label for="employeeFormName">Name *</label><input id="employeeFormName" required maxlength="500"></div>
+                            <div class="form-group"><label for="employeeFormDepartment">Department</label><input id="employeeFormDepartment" maxlength="500"></div>
+                            <div class="form-group"><label for="employeeFormRole">Designation</label><input id="employeeFormRole" maxlength="500"></div>
+                            <div class="form-group"><label for="employeeFormJoinDate">Joining date</label><input id="employeeFormJoinDate" type="date"></div>
+                            <div class="form-group"><label for="employeeFormEmail">Email</label><input id="employeeFormEmail" type="email" maxlength="500"></div>
+                            <div class="form-group"><label for="employeeFormPhone">Phone</label><input id="employeeFormPhone" type="tel" maxlength="500"></div>
+                            <div class="form-group"><label for="employeeFormManager">Manager</label><input id="employeeFormManager" maxlength="500"></div>
+                            <div class="form-group"><label for="employeeFormLocation">Location</label><input id="employeeFormLocation" maxlength="500"></div>
+                        </div>
+                        <p id="employeeFormError" class="employee-form-error" role="alert" hidden></p>
+                        <div class="form-actions">
+                            <button type="submit" class="btn-primary" id="employeeSaveButton">Save Employee</button>
+                            <button type="button" class="btn-secondary" onclick="cancelEmployeeForm()">Cancel</button>
+                        </div>
+                    </form>
                 </div>
             </section>
 

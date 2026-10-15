@@ -5321,6 +5321,9 @@ let selectedAssignEmployee = null;
 // Why the list is empty, when it is empty for a reason other than "no matches".
 // Without this a failed request looks exactly like a table with no employees.
 let employeeLoadError = '';
+let employeeMigrationRequired = false;
+let editingEmployeeId = null;
+let employeeFormInitialValues = {};
 
 async function loadEmployeesData() {
     employeeLoadError = '';
@@ -5341,6 +5344,12 @@ async function loadEmployeesData() {
                 (columns ? `Its columns are: ${columns}.` : '');
         }
 
+        employeeMigrationRequired = Boolean(data.migrationRequired);
+        const notice = document.getElementById('employeeMigrationNotice');
+        notice.hidden = !employeeMigrationRequired;
+        notice.textContent = data.migrationMessage || '';
+        document.getElementById('addEmployeeButton').disabled = employeeMigrationRequired;
+        document.getElementById('assignAssetButton').disabled = employeeMigrationRequired;
         updateEmployeeStats();
     } catch (error) {
         console.error('Error loading employees data:', error);
@@ -5352,114 +5361,112 @@ async function loadEmployeesData() {
 }
 
 function updateEmployeeStats() {
-    document.getElementById('totalEmployees').textContent = employeesData.length;
+    document.getElementById('totalEmployees').textContent = employeesData.filter(emp => !emp.archivedAt).length;
     const activeAssets = employeeAssetsData.filter(a => a.status === 'Active').length;
     document.getElementById('employeeActiveAssets').textContent = activeAssets;
     document.getElementById('employeeTotalAssets').textContent = employeeAssetsData.length;
 }
 
-function renderEmployees() {
-    const container = document.getElementById('employeesList');
-    const searchTerm = document.getElementById('employeeSearch')?.value?.toLowerCase() || '';
-    
-    const filtered = employeesData.filter(emp => 
-        emp.name?.toLowerCase().includes(searchTerm) || 
-        emp.department?.toLowerCase().includes(searchTerm) ||
-        emp.role?.toLowerCase().includes(searchTerm)
-    );
-    
-    if (filtered.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <div style="font-size: 48px; margin-bottom: 16px;">👥</div>
-                <h3>No Employees Found</h3>
-                <p>No matching employees were found in the employees table.</p>
-            </div>
-        `;
-        return;
-    }
-    
-    container.innerHTML = filtered.map(emp => {
-        const assets = employeeAssetsData.filter(a => a.empId === emp.empId && a.status === 'Active');
-        const assetCount = assets.length;
-        
-        return `
-            <div class="employee-card" onclick="viewEmployeeDetail('${emp.empId}')" style="background: white; border-radius: 12px; padding: 20px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,0.12)'" onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 2px 8px rgba(0,0,0,0.08)'">
-                <div style="display: flex; justify-content: space-between; align-items: start;">
-                    <div>
-                        <h3 style="margin: 0 0 4px 0; color: #1e293b;">${emp.name}</h6>
-                        <p style="margin: 0; color: #64748b; font-size: 14px;">${emp.role || 'No role'} • ${emp.department}</p>
-                    </div>
-                    <div style="text-align: right;">
-                        <div style="background: ${assetCount > 0 ? '#22c55e' : '#e2e8f0'}; color: ${assetCount > 0 ? 'white' : '#64748b'}; padding: 6px 12px; border-radius: 20px; font-size: 14px; font-weight: 600;">
-                            ${assetCount} Asset${assetCount !== 1 ? 's' : ''}
-                        </div>
-                    </div>
-                </div>
-                ${emp.phone ? `<p style="margin: 12px 0 0 0; color: #64748b; font-size: 13px;">📱 ${emp.phone}</p>` : ''}
-            </div>
-        `;
-    }).join('');
-}
-
-function renderEmployees() {
-    const container = document.getElementById('employeesList');
-    const searchTerm = document.getElementById('employeeSearch')?.value?.toLowerCase() || '';
-
-    const filtered = employeesData
-        .filter(emp =>
-            String(emp.name || '').toLowerCase().includes(searchTerm) ||
-            String(emp.empId || '').toLowerCase().includes(searchTerm) ||
-            String(emp.department || '').toLowerCase().includes(searchTerm) ||
-            String(emp.role || '').toLowerCase().includes(searchTerm)
-        )
-        .sort((a, b) => String(a.name || a.empId).localeCompare(String(b.name || b.empId)));
-
-    if (filtered.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <h3>No Employees Found</h3>
-                <p>No matching employees were found in the employees table.</p>
-            </div>
-        `;
-        return;
-    }
-
-    container.innerHTML = filtered.map(emp => {
-        const assets = employeeAssetsData.filter(a => a.empId === emp.empId && a.status === 'Active');
-        const assetCount = assets.length;
-
-        return `
-            <button type="button" class="employee-card" onclick="viewEmployeeDetail('${escapeHtml(emp.empId)}')">
-                <span class="employee-card-main">
-                    <span class="employee-card-name">${escapeHtml(emp.name || '-')}</span>
-                    <span class="employee-card-meta">${escapeHtml(emp.role || 'No role')} <span>•</span> ${escapeHtml(emp.department || 'No department')}</span>
-                    ${emp.phone ? `<span class="employee-card-phone">${escapeHtml(emp.phone)}</span>` : ''}
-                </span>
-                <span class="employee-asset-badge ${assetCount > 0 ? 'has-assets' : ''}">
-                    ${assetCount} Asset${assetCount !== 1 ? 's' : ''}
-                </span>
-            </button>
-        `;
-    }).join('');
-}
-
-// Assets currently held by an employee. empIds are compared as strings because
-// the sheet returns them as numbers in some rows and text in others.
 function employeeActiveAssets(empId) {
-    return employeeAssetsData.filter(a => String(a.empId) === String(empId) && a.status === 'Active');
+    return employeeAssetsData.filter(asset => String(asset.empId) === String(empId) && asset.status === 'Active');
 }
 
-// 'all' | 'with' | 'without' — matches the #employeeAssetFilter dropdown.
 function employeeAssetFilterValue() {
     return document.getElementById('employeeAssetFilter')?.value || 'all';
 }
 
 function matchesEmployeeAssetFilter(emp) {
     const mode = employeeAssetFilterValue();
-    if (mode === 'all') return true;
-    const hasAssets = employeeActiveAssets(emp.empId).length > 0;
-    return mode === 'with' ? hasAssets : !hasAssets;
+    return mode === 'all' || (mode === 'with' ? employeeActiveAssets(emp.empId).length > 0 : employeeActiveAssets(emp.empId).length === 0);
+}
+
+function matchesEmployeeStatusFilter(emp) {
+    const status = document.getElementById('employeeStatusFilter')?.value || 'active';
+    return status === 'all' || (status === 'archived' ? Boolean(emp.archivedAt) : !emp.archivedAt);
+}
+
+const employeeFormFields = { empId: 'Id', name: 'Name', department: 'Department', role: 'Role',
+    joinDate: 'JoinDate', email: 'Email', phone: 'Phone', manager: 'Manager', location: 'Location' };
+
+function openEmployeeForm(empId = null) {
+    if (employeeMigrationRequired) { showToast('Apply the employee migration first', 'error'); return; }
+    const employee = empId === null ? null : employeesData.find(emp => String(emp.empId) === String(empId));
+    if (empId !== null && !employee) { showToast('Employee not found', 'error'); return; }
+    editingEmployeeId = employee?.empId ?? null;
+    employeeFormInitialValues = {};
+    document.getElementById('employeeForm').reset();
+    for (const [field, suffix] of Object.entries(employeeFormFields)) {
+        document.getElementById('employeeForm' + suffix).value = employee?.[field] || '';
+        employeeFormInitialValues[field] = document.getElementById('employeeForm' + suffix).value;
+    }
+    document.getElementById('employeeFormId').readOnly = editingEmployeeId !== null;
+    document.getElementById('employeeFormTitle').textContent = employee ? 'Edit Employee' : 'Add Employee';
+    document.getElementById('employeeFormError').hidden = true;
+    switchView('employeeForm');
+    document.getElementById(employee ? 'employeeFormName' : 'employeeFormId').focus();
+}
+
+function cancelEmployeeForm() {
+    if (editingEmployeeId !== null) viewEmployeeDetail(editingEmployeeId);
+    else switchView('employeeAssets');
+}
+
+async function saveEmployee(event) {
+    event.preventDefault();
+    const button = document.getElementById('employeeSaveButton');
+    if (button.disabled) return;
+    const errorElement = document.getElementById('employeeFormError');
+    errorElement.hidden = true;
+    const payload = {};
+    for (const [field, suffix] of Object.entries(employeeFormFields)) {
+        const value = document.getElementById('employeeForm' + suffix).value;
+        if (editingEmployeeId === null || value !== employeeFormInitialValues[field]) payload[field] = value;
+    }
+    if (editingEmployeeId !== null) {
+        delete payload.empId;
+        if (!Object.keys(payload).length) { viewEmployeeDetail(editingEmployeeId); return; }
+        payload.empId = editingEmployeeId;
+    }
+    button.disabled = true;
+    try {
+        const result = await supabaseAction(editingEmployeeId === null ? 'createEmployee' : 'updateEmployee', payload);
+        await loadEmployeesData();
+        if (employeeLoadError) throw new Error('Employee saved, but the list could not refresh: ' + employeeLoadError);
+        showToast('Employee saved', 'success');
+        viewEmployeeDetail(result.empId);
+    } catch (error) {
+        errorElement.textContent = error.message;
+        errorElement.hidden = false;
+    } finally {
+        button.disabled = false;
+    }
+}
+
+let employeeArchivePending = false;
+async function changeEmployeeArchive(archive) {
+    if (employeeArchivePending) return;
+    const empId = currentEmployeeId;
+    const employee = employeesData.find(emp => String(emp.empId) === String(empId));
+    if (!employee) return;
+    if (archive && employeeActiveAssets(empId).length) {
+        showToast('Return all active assets before deleting this employee', 'error'); return;
+    }
+    employeeArchivePending = true;
+    try {
+        if (archive && !await showConfirmDialog({ title: 'Delete Employee?',
+            message: `Archive ${employee.name || empId} from the active employee list?`,
+            note: 'Employee details and asset history will be kept. You can restore the employee from Archived employees.',
+            confirmLabel: 'Archive Employee' })) return;
+        await supabaseAction(archive ? 'archiveEmployee' : 'restoreEmployee', { empId });
+        await loadEmployeesData();
+        if (employeeLoadError) throw new Error('Change saved, but the list could not refresh: ' + employeeLoadError);
+        showToast(archive ? 'Employee archived; history preserved' : 'Employee restored', 'success');
+        viewEmployeeDetail(empId);
+    } catch (error) {
+        showToast(error.message, 'error');
+    } finally {
+        employeeArchivePending = false;
+    }
 }
 
 function renderEmployees() {
@@ -5473,6 +5480,7 @@ function renderEmployees() {
             String(emp.department || '').toLowerCase().includes(searchTerm) ||
             String(emp.role || '').toLowerCase().includes(searchTerm)
         )
+        .filter(matchesEmployeeStatusFilter)
         .filter(emp => matchesDateFilter('employee', emp.joinDate))
         .filter(matchesEmployeeAssetFilter)
         .sort((a, b) => String(a.name || a.empId).localeCompare(String(b.name || b.empId)));
@@ -5492,7 +5500,7 @@ function renderEmployees() {
             : `
             <div class="empty-state">
                 <h3>No Employees Found</h3>
-                <p>No matching employees were found in the employees table.</p>
+                <p>No employees match the current filters.</p>
             </div>
         `;
         return;
@@ -5502,7 +5510,7 @@ function renderEmployees() {
         const assetCount = employeeActiveAssets(emp.empId).length;
 
         return `
-            <button type="button" class="employee-card" onclick="viewEmployeeDetail('${escapeHtml(emp.empId)}')">
+            <button type="button" class="employee-card" data-employee-id="${escapeHtml(emp.empId)}" onclick="viewEmployeeDetail(this.dataset.employeeId)">
                 <span class="employee-card-top">
                     <span class="employee-avatar">${escapeHtml(employeeInitials(emp.name))}</span>
                     <span class="employee-card-title">
@@ -5510,7 +5518,7 @@ function renderEmployees() {
                         <span class="employee-card-role">${escapeHtml(emp.role || 'Employee')}</span>
                         <span class="employee-card-department">${escapeHtml(emp.department || 'No department')}</span>
                     </span>
-                    <span class="employee-edit-pill">View</span>
+                    <span class="employee-edit-pill">${emp.archivedAt ? 'Archived' : 'View'}</span>
                 </span>
 
                 <span class="employee-card-footer">
@@ -5542,6 +5550,7 @@ function getFilteredEmployees() {
             String(emp.department || '').toLowerCase().includes(searchTerm) ||
             String(emp.role || '').toLowerCase().includes(searchTerm)
         )
+        .filter(matchesEmployeeStatusFilter)
         .filter(emp => matchesDateFilter('employee', emp.joinDate))
         .filter(matchesEmployeeAssetFilter);
 }
@@ -5617,7 +5626,7 @@ function employeeAssetRows(assets, type) {
             <td>${escapeHtml(asset.assignedDate || '-')}</td>
             ${type === 'active' ? `
                 <td class="employee-table-action">
-                    <button class="btn-secondary employee-return-btn" onclick="returnAsset('${escapeHtml(asset.id)}')">Return</button>
+                    <button class="btn-secondary employee-return-btn" data-asset-id="${escapeHtml(asset.id)}" onclick="returnAsset(this.dataset.assetId)">Return</button>
                 </td>
             ` : `
                 <td>${escapeHtml(asset.returnedDate || '-')}</td>
@@ -5657,105 +5666,7 @@ let currentEmployeeId = null;
 
 function viewEmployeeDetail(empId) {
     currentEmployeeId = empId;
-    const emp = employeesData.find(e => e.empId === empId);
-    if (!emp) {
-        alert('Employee not found! empId: ' + empId + ', available: ' + JSON.stringify(employeesData.map(e => e.empId)));
-        return;
-    }
-    
-    console.log('Employee ID:', empId);
-    console.log('All assets:', employeeAssetsData);
-    console.log('Filtered assets:', employeeAssetsData.filter(a => String(a.empId) === String(empId)));
-    
-    const assets = employeeAssetsData.filter(a => String(a.empId) === String(empId));
-    const activeAssets = assets.filter(a => a.status === 'Active');
-    const returnedAssets = assets.filter(a => a.status === 'Returned');
-    
-    const content = document.getElementById('employeeDetailContent');
-    content.innerHTML = `
-        <div class="card" style="margin-bottom: 20px;">
-            <div style="display: flex; justify-content: space-between; align-items: start;">
-                <div>
-                    <h2 style="margin: 0 0 8px 0;">👤 ${emp.name}</h2>
-                    <p style="margin: 0; color: #64748b;">${emp.role || 'No designation'} • ${emp.department}</p>
-                    <p style="margin: 8px 0 0 0; color: #64748b; font-size: 14px;">
-                        📅 Joined: ${emp.joinDate || 'Not set'}
-                    </p>
-                </div>
-                <div style="display: flex; gap: 8px;">
-                    <button class="btn-primary" onclick="openAssignAsset('${empId}')">+ Assign Asset</button>
-                </div>
-            </div>
-        </div>
-        
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px;">
-            <div class="stat-card" style="background: #f0fdf4; padding: 16px; border-radius: 12px; text-align: center;">
-                <div style="font-size: 24px; font-weight: bold; color: #22c55e;">${activeAssets.length}</div>
-                <div style="color: #64748b; font-size: 14px;">Active Assets</div>
-            </div>
-            <div class="stat-card" style="background: #f8fafc; padding: 16px; border-radius: 12px; text-align: center;">
-                <div style="font-size: 24px; font-weight: bold; color: #64748b;">${returnedAssets.length}</div>
-                <div style="color: #64748b; font-size: 14px;">Returned</div>
-            </div>
-            <div class="stat-card" style="background: #fef3c7; padding: 16px; border-radius: 12px; text-align: center;">
-                <div style="font-size: 24px; font-weight: bold; color: #f59e0b;">${assets.length}</div>
-                <div style="color: #64748b; font-size: 14px;">Total Assigned</div>
-            </div>
-        </div>
-        
-        <h3 style="margin-bottom: 12px;">📦 Current Assets</h3>
-        ${activeAssets.length === 0 ? '<p style="color: #64748b;">No active assets assigned</p>' : 
-            `<table style="width: 100%; border-collapse: collapse; background: white; color: #1e293b; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
-                <thead style="background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
-                    <tr>
-                        <th style="padding: 12px; text-align: left; font-size: 13px; color: #64748b;">Product Name</th>
-                        <th style="padding: 12px; text-align: left; font-size: 13px; color: #64748b;">Assigned Date</th>
-                        <th style="padding: 12px; text-align: right; font-size: 13px; color: #64748b;">Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${activeAssets.map(asset => `
-                        <tr style="border-bottom: 1px solid #f1f5f9;">
-                            <td style="padding: 12px; font-weight: 500;">${asset.itemName}</td>
-                            <td style="padding: 12px; color: #64748b;">${asset.assignedDate || '-'}</td>
-                            <td style="padding: 12px; text-align: right;">
-                                <button class="btn-secondary" onclick="returnAsset('${asset.id}')" style="padding: 4px 10px; font-size: 12px;">↩️ Return</button>
-                            </td>
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>`
-        }
-        
-        ${returnedAssets.length > 0 ? `
-            <h3 style="margin: 24px 0 12px 0; color: #64748b;">📋 History (Returned)</h3>
-            <table style="width: 100%; border-collapse: collapse; background: #f8fafc; color: #334155; border-radius: 8px; overflow: hidden; opacity: 0.8;">
-                <thead style="border-bottom: 1px solid #e2e8f0;">
-                    <tr>
-                        <th style="padding: 10px; text-align: left; font-size: 12px; color: #64748b;">Product Name</th>
-                        <th style="padding: 10px; text-align: left; font-size: 12px; color: #64748b;">Assigned Date</th>
-                        <th style="padding: 10px; text-align: left; font-size: 12px; color: #64748b;">Returned Date</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${returnedAssets.map(asset => `
-                        <tr style="border-bottom: 1px solid #e2e8f0;">
-                            <td style="padding: 10px; font-weight: 500;">${asset.itemName}</td>
-                            <td style="padding: 10px; color: #64748b; font-size: 13px;">${asset.assignedDate}</td>
-                            <td style="padding: 10px; color: #22c55e; font-size: 13px;">${asset.returnedDate}</td>
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>
-        ` : ''}
-    `;
-    
-    switchView('employeeDetail');
-}
-
-function viewEmployeeDetail(empId) {
-    currentEmployeeId = empId;
-    const emp = employeesData.find(e => e.empId === empId);
+    const emp = employeesData.find(e => String(e.empId) === String(empId));
     if (!emp) {
         alert('Employee not found! empId: ' + empId);
         return;
@@ -5771,9 +5682,17 @@ function viewEmployeeDetail(empId) {
             <div>
                 <h2>${escapeHtml(emp.name || '-')}</h2>
                 <p>${escapeHtml(emp.role || 'No designation')} <span>•</span> ${escapeHtml(emp.department || 'No department')}</p>
-                <p class="employee-detail-muted">Joined: ${escapeHtml(emp.joinDate || 'Not set')}</p>
+                <p class="employee-detail-muted">Employee ID: ${escapeHtml(emp.empId)} | Joined: ${escapeHtml(emp.joinDate || 'Not set')}</p>
+                <p class="employee-detail-muted">${escapeHtml([emp.email, emp.phone, emp.manager, emp.location].filter(Boolean).join(' | '))}</p>
+                ${emp.archivedAt ? '<p class="employee-detail-muted">Archived employee. Details and asset history are preserved.</p>' : ''}
             </div>
-            <button class="btn-primary" onclick="openAssignAsset('${escapeHtml(empId)}')">+ Assign Asset</button>
+            <div class="employee-detail-actions">
+                <button class="btn-secondary" onclick="openEmployeeForm(currentEmployeeId)" ${employeeMigrationRequired ? 'disabled' : ''}>Edit Employee</button>
+                ${emp.archivedAt
+                    ? '<button class="btn-primary" onclick="changeEmployeeArchive(false)">Restore Employee</button>'
+                    : `<button class="btn-secondary employee-archive-button" onclick="changeEmployeeArchive(true)" ${employeeMigrationRequired ? 'disabled' : ''}>Delete Employee</button>
+                       <button class="btn-primary" onclick="openAssignAsset(currentEmployeeId)" ${employeeMigrationRequired ? 'disabled' : ''}>+ Assign Asset</button>`}
+            </div>
         </div>
 
         <div class="employee-detail-stats">
@@ -5814,7 +5733,9 @@ function viewEmployeeDetail(empId) {
 function openAssignAsset(empId) {
     currentEmployeeId = empId;
     
+    if (employeeMigrationRequired) { showToast('Apply the employee migration first', 'error'); return; }
     const emp = employeesData.find(employee => String(employee.empId) === String(empId));
+    if (emp?.archivedAt) { showToast('Restore the employee before assigning assets', 'error'); return; }
     selectedAssignEmployee = emp || null;
     document.getElementById('assignEmpId').value = emp?.empId || '';
     document.getElementById('assignEmployeeSearch').value = emp ? assignEmployeeLabel(emp) : '';
@@ -5863,6 +5784,7 @@ function filterAssignEmployees() {
     }
 
     const employees = employeesData
+        .filter(emp => !emp.archivedAt)
         .filter(emp => {
             if (!query) return true;
             return [emp.name, emp.empId, emp.department, emp.role, emp.email]
@@ -5878,7 +5800,7 @@ function filterAssignEmployees() {
     }
 
     resultsEl.innerHTML = employees.map(emp => `
-        <button type="button" class="asset-search-option" onclick="selectAssignEmployee('${escapeHtml(emp.empId)}')">
+        <button type="button" class="asset-search-option" data-employee-id="${escapeHtml(emp.empId)}" onclick="selectAssignEmployee(this.dataset.employeeId)">
             <span class="asset-search-name">${escapeHtml(emp.name || emp.empId || '-')}</span>
             <span class="asset-search-meta">${escapeHtml([emp.empId, emp.department, emp.role].filter(Boolean).join(' - ') || 'No details')}</span>
         </button>
@@ -5952,7 +5874,7 @@ async function assignAssetToEmployee(event) {
         
     } catch (error) {
         console.error('Error assigning asset:', error);
-        showToast('Failed to assign asset', 'error');
+        showToast(error.message || 'Failed to assign asset', 'error');
     }
 }
 
@@ -5991,7 +5913,7 @@ async function returnAsset(assetId) {
         
     } catch (error) {
         console.error('Error returning asset:', error);
-        showToast('Failed to return asset', 'error');
+        showToast(error.message || 'Failed to return asset', 'error');
     }
 }
 
@@ -6122,6 +6044,7 @@ switchView = function(viewName) {
     const empTitles = {
         employeeAssets: 'Employee Assets',
         employeeDetail: 'Employee Details',
+        employeeForm: 'Employee Management',
         addAssetToEmployee: 'Assign Asset'
     };
     if (empTitles[viewName]) {
